@@ -1,0 +1,131 @@
+# Project Setup Guide
+## Backend Setup
+
+### 1. Open the project in VS Code
+
+Open the project folder in VS Code and open the terminal.
+Navigate to the backend folder:
+
+cd backend
+
+### 2. Create a Virtual Environment
+Create a Python virtual environment:
+
+python -m venv venv
+
+
+### 3. Activate the Virtual Environment
+
+For Windows:
+
+venv\Scripts\activate
+After activation, you should see `(venv)` in the terminal.
+
+### 4. Install Required Packages
+All required Python packages are already listed in `requirements.txt`.
+
+Run:
+pip install -r requirements.txt
+If any package is missing, install it manually:
+pip install package_name
+
+
+### 5. Configure the Database
+Open the `.env` file and update it with your SQL Server information.
+
+Example:
+```env
+SERVER=your_server
+DATABASE=your_database
+USERNAME=your_username
+PASSWORD=your_password
+```
+
+Make sure the required database and tables already exist in your SQL Server database.
+Required tables:
+```text
+hospital_admission
+hospital_readmission
+_hospital_readmission
+```
+> Make sure the table names match exactly with the names used by the backend.
+
+### 6. Run the Backend
+Start the backend using:
+python run.py
+
+The backend should start on:
+```
+http://127.0.0.1:8000
+```
+
+### 7. Test the Database Connection
+
+Open the following URL in your browser:
+
+```
+http://127.0.0.1:8000/api/db-test
+```
+This endpoint is used to verify whether the backend is successfully connected to the SQL Server database.
+If the database connection is successful, the DB test endpoint should return a successful response.
+
+--------
+
+# Frontend Setup
+
+We have used **Next.js** for the frontend.
+Make sure **Node.js** is installed on your system before starting the frontend.
+### 1. Open a New Terminal
+Keep the backend terminal running and open another terminal in VS Code.
+Navigate to the frontend folder:
+
+cd frontend
+
+
+### 2. Install Frontend Packages
+Install all required Node.js packages:
+
+npm install
+
+This will install all dependencies listed in `package.json`.
+
+### 3. Start the Frontend
+After the installation is complete, run:
+
+npm run dev
+
+
+The frontend will normally be available at:
+http://localhost:3000
+
+
+---
+
+# Quick Start
+
+## Backend
+cd backend
+python -m venv venv
+venv\Scripts\activate
+pip install -r requirements.txt
+python run.py
+
+
+Test database connection:
+http://127.0.0.1:8000/api/db-test
+
+
+## Frontend
+Open a **new terminal**:
+
+
+cd frontend
+npm install
+npm run dev
+
+
+Frontend:
+http://localhost:3000
+
+
+Keep both terminals running while using the application.
