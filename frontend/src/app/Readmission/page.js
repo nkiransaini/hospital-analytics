@@ -12,7 +12,7 @@ import {
   Tooltip,
   Legend,
 } from 'chart.js';
-import { Doughnut, Bar } from 'react-chartjs-2';
+import { Bar } from 'react-chartjs-2';
 import { 
   Users, Activity, AlertTriangle, Percent, RefreshCw, CheckCircle2, ChevronRight 
 } from 'lucide-react';
@@ -38,9 +38,8 @@ export default function ReadmissionPage() {
     setLoading(true);
     setError(null);
     try {
-      // Fixed URL: admission -> readmission
       const response = await fetch('http://localhost:8000/api/readmission/stats');
-      if (!response.ok) throw new Error('Backend server connect nahi ho paya');
+      if (!response.ok) throw new Error('Failed to connect to backend server');
       
       const data = await response.json();
       if (data.status === 'error') throw new Error(data.detail || data.message);
@@ -96,42 +95,62 @@ export default function ReadmissionPage() {
     );
   }
 
-  // Chart 1: Risk Category Doughnut
-  const riskChartData = {
-    labels: ['High Risk', 'Medium Risk', 'Low Risk'],
+  // Chart 1: Predicted Readmission Time Window Bar Chart
+  const timeWindowLabels = metrics?.time_window_distribution 
+    ? Object.keys(metrics.time_window_distribution) 
+    : ['No Admission', '> 180 Days', '< 30 Days', '91 to 180 Days', '30 to 60 Days', '61 to 90 Days'];
+
+  const timeWindowDataValues = metrics?.time_window_distribution 
+    ? Object.values(metrics.time_window_distribution) 
+    : [0, 0, 0, 0, 0, 0];
+
+  const timeWindowChartData = {
+    labels: timeWindowLabels,
     datasets: [
       {
-        data: [
-          metrics?.risk_categories?.['High Risk'] || 0,
-          metrics?.risk_categories?.['Medium Risk'] || 0,
-          metrics?.risk_categories?.['Low Risk'] || 0,
-        ],
-        backgroundColor: ['#ef4444', '#f59e0b', '#10b981'],
-        borderWidth: 2,
-        borderColor: '#ffffff',
+        label: 'Total Readmission Members',
+        data: timeWindowDataValues,
+        backgroundColor: '#0ea5e9',
+        borderRadius: 4,
       },
     ],
   };
 
-  // Chart 2: Actual vs Model Predicted Admissions Bar Chart
-  const admissionComparisonData = {
-    labels: ['Admission', 'No Admission'],
+  // Chart 2: Stage 1 - Prediction Result Distribution Bar Chart
+  const resultCategories = ['True Negative', 'True Positive', 'False Positive', 'False Negative'];
+  const predictionResultData = {
+    labels: resultCategories,
+    datasets: [
+      {
+        label: 'Members',
+        data: resultCategories.map(cat => metrics?.prediction_results?.[cat] || 0),
+        backgroundColor: '#0284c7',
+        borderRadius: 4,
+      },
+    ],
+  };
+
+  // Chart 3: Actual vs Model Predicted Readmissions Bar Chart (Fixed property name)
+  const comparisonData = {
+    labels: ['Readmission', 'No Readmission'],
     datasets: [
       {
         label: 'Actual Status',
         data: [
-          metrics?.admission_comparison?.actual_admissions || 0,
-          metrics?.admission_comparison?.actual_no_admissions || 0,
+          metrics?.readmission_comparison?.actual_readmissions || 0,
+          metrics?.readmission_comparison?.actual_no_readmissions || 0,
         ],
         backgroundColor: '#3b82f6',
+        borderRadius: 4,
       },
       {
         label: 'Model Predicted',
         data: [
-          metrics?.admission_comparison?.predicted_admissions || 0,
-          metrics?.admission_comparison?.predicted_no_admissions || 0,
+          metrics?.readmission_comparison?.predicted_readmissions || 0,
+          metrics?.readmission_comparison?.predicted_no_readmissions || 0,
         ],
         backgroundColor: '#8b5cf6',
+        borderRadius: 4,
       },
     ],
   };
@@ -225,41 +244,14 @@ export default function ReadmissionPage() {
           </div>
         </div>
 
-        {/* Detailed Confusion Matrix Breakdown Cards */}
-        {metrics?.prediction_results && Object.keys(metrics.prediction_results).length > 0 && (
+        {/* Charts Grid Row 1: Readmission Time Window & Prediction Result Distribution */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
-            <h2 className="text-base font-bold text-slate-800 mb-4">Model Prediction Classification Breakdown</h2>
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-              {Object.entries(metrics.prediction_results).map(([key, val]) => (
-                <div key={key} className="bg-slate-50 border border-slate-200 p-4 rounded-xl text-center">
-                  <p className="text-xs font-semibold text-slate-500 uppercase">{key}</p>
-                  <p className="text-2xl font-bold text-slate-800 mt-1">{val}</p>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* Charts Grid */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Doughnut Chart */}
-          <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 flex flex-col justify-between">
-            <div>
-              <h2 className="text-base font-bold text-slate-800">Risk Category Distribution</h2>
-              <p className="text-xs text-slate-500 mb-4">Breakdown of patient risk scores</p>
-            </div>
-            <div className="w-full max-w-[220px] mx-auto py-2">
-              <Doughnut data={riskChartData} />
-            </div>
-          </div>
-
-          {/* Bar Chart: Actual vs Predicted */}
-          <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 lg:col-span-2">
-            <h2 className="text-base font-bold text-slate-800">Actual vs Model Predicted Readmissions</h2>
-            <p className="text-xs text-slate-500 mb-4">Comparison between real status and ML model predictions</p>
+            <h2 className="text-base font-bold text-slate-800">Predicted Readmission Time Window</h2>
+            <p className="text-xs text-slate-500 mb-4">Stage2_Predicted_Time_Window distribution</p>
             <div className="h-[280px]">
               <Bar 
-                data={admissionComparisonData} 
+                data={timeWindowChartData} 
                 options={{ 
                   responsive: true, 
                   maintainAspectRatio: false,
@@ -267,6 +259,37 @@ export default function ReadmissionPage() {
                 }} 
               />
             </div>
+          </div>
+
+          <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
+            <h2 className="text-base font-bold text-slate-800">Stage 1 – Prediction Result Distribution</h2>
+            <p className="text-xs text-slate-500 mb-4">Member counts per classification outcome</p>
+            <div className="h-[280px]">
+              <Bar 
+                data={predictionResultData} 
+                options={{ 
+                  responsive: true, 
+                  maintainAspectRatio: false,
+                  scales: { y: { beginAtZero: true } } 
+                }} 
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* Charts Grid Row 2: Actual vs Model Predicted Readmissions */}
+        <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
+          <h2 className="text-base font-bold text-slate-800">Actual vs Model Predicted Readmissions</h2>
+          <p className="text-xs text-slate-500 mb-4">Comparison between real status and ML model predictions</p>
+          <div className="h-[300px]">
+            <Bar 
+              data={comparisonData} 
+              options={{ 
+                responsive: true, 
+                maintainAspectRatio: false,
+                scales: { y: { beginAtZero: true } } 
+              }} 
+            />
           </div>
         </div>
 
