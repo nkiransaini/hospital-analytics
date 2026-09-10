@@ -255,14 +255,20 @@ function PatientProfileContent() {
         </a>
       </div>
 
+      {/* Patient Header Banner (Updated with Member Name) */}
       <div className="bg-white p-6 rounded-2xl border border-slate-200/80 shadow-xs space-y-6">
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
           <div className="space-y-1">
-            <div className="flex items-center gap-2">
-              <UserCheck size={20} className="text-sky-600" />
+            <div className="flex items-center gap-2 flex-wrap">
+              <UserCheck size={22} className="text-sky-600 shrink-0" />
               <h1 className="text-2xl font-black tracking-tight text-slate-900">
                 Member #{patient.Member_Number}
               </h1>
+              {patient.Member_Name && patient.Member_Name !== 'N/A' && (
+                <span className="text-lg font-bold text-slate-700 sm:border-l sm:border-slate-200 sm:pl-3">
+                  {patient.Member_Name}
+                </span>
+              )}
             </div>
             <div className="text-xs sm:text-sm text-slate-500 font-medium">
               Age:{' '}

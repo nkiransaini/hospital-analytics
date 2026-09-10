@@ -1,7 +1,4 @@
-import csv
-import io
 from fastapi import APIRouter, HTTPException, Query
-from fastapi.responses import StreamingResponse
 from db import get_connection
 
 router = APIRouter(
@@ -182,48 +179,57 @@ def get_readmission_patient_list(
         params = []
 
         if search.strip():
-            where_clauses.append("CAST(Member_Number AS VARCHAR(50)) LIKE ?")
+            where_clauses.append("CAST(HA.Member_Number AS VARCHAR(50)) LIKE ?")
             params.append(f"%{search.strip()}%")
 
         if condition != "ALL":
             where_clauses.append("""
                 (CASE 
-                    WHEN Risk_Score >= 7.0 THEN 'High Risk'
-                    WHEN Risk_Score >= 4.0 THEN 'Medium Risk'
+                    WHEN HA.Risk_Score >= 7.0 THEN 'High Risk'
+                    WHEN HA.Risk_Score >= 4.0 THEN 'Medium Risk'
                     ELSE 'Low Risk'
                 END) = ?
             """)
             params.append(condition)
 
         if status != "ALL":
-            where_clauses.append("Actual_Readmission_Status = ?")
+            where_clauses.append("HA.Actual_Readmission_Status = ?")
             params.append(status)
 
         where_sql = " AND ".join(where_clauses)
 
+        # Joins with dbo.Member_ICDcodes via OUTER APPLY to get Member Name cleanly
         unique_patients_cte = f"""
             WITH UniquePatients AS (
                 SELECT
-                    Member_Number,
-                    Age,
-                    Gender,
-                    Tier,
-                    Risk_Score,
+                    HA.Member_Number,
+                    COALESCE(NAME_LOOKUP.Member_Name, 'N/A') AS Member_Name,
+                    HA.Age,
+                    HA.Gender,
+                    HA.Tier,
+                    HA.Risk_Score,
                     CASE 
-                        WHEN Risk_Score >= 7.0 THEN 'High Risk'
-                        WHEN Risk_Score >= 4.0 THEN 'Medium Risk'
+                        WHEN HA.Risk_Score >= 7.0 THEN 'High Risk'
+                        WHEN HA.Risk_Score >= 4.0 THEN 'Medium Risk'
                         ELSE 'Low Risk'
                     END AS Risk_Category,
-                    Total_Medical_Cost,
-                    Stage1_Admission_Prob_Pct,
-                    Stage1_Readmission_Status,
-                    Actual_Readmission_Status,
-                    Stage2_Predicted_Time_Window,
+                    HA.Total_Medical_Cost,
+                    HA.Stage1_Admission_Prob_Pct,
+                    HA.Stage1_Readmission_Status,
+                    HA.Actual_Readmission_Status,
+                    HA.Stage2_Predicted_Time_Window,
                     ROW_NUMBER() OVER (
-                        PARTITION BY Member_Number
-                        ORDER BY PCP_Number
+                        PARTITION BY HA.Member_Number
+                        ORDER BY HA.PCP_Number
                     ) AS rn
-                FROM dbo.Hospital_Readmission
+                FROM dbo.Hospital_Readmission HA
+                OUTER APPLY (
+                    SELECT TOP 1 
+                        LTRIM(RTRIM(COALESCE(MEMBER_FIRST_NAME, '') + ' ' + COALESCE(MEMBER_LAST_NAME, ''))) AS Member_Name
+                    FROM dbo.Member_ICDcodes ICD
+                    WHERE CAST(ICD.MEMBER_NUMBER AS VARCHAR(50)) = CAST(HA.Member_Number AS VARCHAR(50))
+                      AND (ICD.MEMBER_FIRST_NAME IS NOT NULL OR ICD.MEMBER_LAST_NAME IS NOT NULL)
+                ) NAME_LOOKUP
                 WHERE {where_sql}
             )
         """
@@ -249,15 +255,16 @@ def get_readmission_patient_list(
         high_risk_cohorts = stats_row[1] or 0
         confirmed_readmissions = stats_row[2] or 0
 
-        # Paginated Rows
+        # Paginated Rows (Includes Member_Name and Risk_Score)
         data_query = f"""
             {unique_patients_cte}
             SELECT
                 Member_Number,
+                Member_Name,
+                Risk_Score,
                 Age,
                 Gender,
                 Tier,
-                Risk_Score,
                 Risk_Category,
                 Total_Medical_Cost,
                 Stage1_Admission_Prob_Pct,
@@ -320,67 +327,75 @@ def get_readmission_patient_profile(member_number: str):
         conn = get_connection()
         cursor = conn.cursor()
 
-        # 1. Base Member Row (Includes new Last PCP encountered columns)
+        # 1. Base Member Row joined with Member_ICDcodes
         patient_query = """
             SELECT TOP 1
-                Member_Number,
-                Age,
-                Gender,
-                Tier,
-                PCP_Number,
-                Group_Number,
-                Days_Active,
-                Risk_Score,
+                HA.Member_Number,
+                COALESCE(NAME_LOOKUP.Member_Name, 'N/A') AS Member_Name,
+                HA.Age,
+                HA.Gender,
+                HA.Tier,
+                HA.PCP_Number,
+                HA.Group_Number,
+                HA.Days_Active,
+                HA.Risk_Score,
                 CASE 
-                    WHEN Risk_Score >= 7.0 THEN 'High Risk'
-                    WHEN Risk_Score >= 4.0 THEN 'Medium Risk'
+                    WHEN HA.Risk_Score >= 7.0 THEN 'High Risk'
+                    WHEN HA.Risk_Score >= 4.0 THEN 'Medium Risk'
                     ELSE 'Low Risk'
                 END AS Risk_Category,
-                IPA_Claims_Budget,
-                Capitation,
-                Effective_Date,
-                Expiration_Date,
-                Source_File_Name,
-                Total_Medical_Claims,
-                Unique_Claims,
-                Unique_Diagnosis,
-                Unique_Procedures,
-                Unique_Providers,
-                Total_Medical_Cost,
-                Avg_Claim_Cost,
-                Max_Claim_Cost,
-                Office_Visits,
-                Outpatient_Visits,
-                ER_Visits,
-                Prescription_Count,
-                Unique_Drugs,
-                Drug_Classes,
-                Pharmacy_Cost,
-                Avg_Days_Supply,
-                Dental_Visits,
-                Dental_Cost,
-                Target_30days,
-                Target_30_to_60days,
-                Target_60_to_90days,
-                Target_90_to_180days,
-                Target_Rest_Over180days,
-                Stage1_Admission_Prob_Pct,
-                Stage1_Readmission_Pred,
-                Stage1_Readmission_Status,
-                Stage1_Prediction_Result,
-                Stage2_Predicted_Time_Window,
-                Cascade_Prediction_Correct,
-                Actual_Readmission_Status,
-                Actual_Target_Bucket,
-                CAST(Last_PCP_Encountered_Number AS VARCHAR(50)) AS Last_PCP_Encountered_Number,
-                Last_PCP_Encountered_Last_Name,
-                Last_PCP_Encountered_First_Name,
-                COALESCE(CONVERT(VARCHAR(10), Last_PCP_Encounter_Date, 120), 'N/A') AS Last_PCP_Encounter_Date
-            FROM dbo.Hospital_Readmission
-            WHERE Member_Number = ?
+                HA.IPA_Claims_Budget,
+                HA.Capitation,
+                HA.Effective_Date,
+                HA.Expiration_Date,
+                HA.Source_File_Name,
+                HA.Total_Medical_Claims,
+                HA.Unique_Claims,
+                HA.Unique_Diagnosis,
+                HA.Unique_Procedures,
+                HA.Unique_Providers,
+                HA.Total_Medical_Cost,
+                HA.Avg_Claim_Cost,
+                HA.Max_Claim_Cost,
+                HA.Office_Visits,
+                HA.Outpatient_Visits,
+                HA.ER_Visits,
+                HA.Prescription_Count,
+                HA.Unique_Drugs,
+                HA.Drug_Classes,
+                HA.Pharmacy_Cost,
+                HA.Avg_Days_Supply,
+                HA.Dental_Visits,
+                HA.Dental_Cost,
+                HA.Target_30days,
+                HA.Target_30_to_60days,
+                HA.Target_60_to_90days,
+                HA.Target_90_to_180days,
+                HA.Target_Rest_Over180days,
+                HA.Stage1_Admission_Prob_Pct,
+                HA.Stage1_Readmission_Pred,
+                HA.Stage1_Readmission_Status,
+                HA.Stage1_Prediction_Result,
+                HA.Stage2_Predicted_Time_Window,
+                HA.Cascade_Prediction_Correct,
+                HA.Actual_Readmission_Status,
+                HA.Actual_Target_Bucket,
+                CAST(HA.Last_PCP_Encountered_Number AS VARCHAR(50)) AS Last_PCP_Encountered_Number,
+                HA.Last_PCP_Encountered_Last_Name,
+                HA.Last_PCP_Encountered_First_Name,
+                COALESCE(CONVERT(VARCHAR(10), HA.Last_PCP_Encounter_Date, 120), 'N/A') AS Last_PCP_Encounter_Date
+            FROM dbo.Hospital_Readmission HA
+            OUTER APPLY (
+                SELECT TOP 1 
+                    LTRIM(RTRIM(COALESCE(MEMBER_FIRST_NAME, '') + ' ' + COALESCE(MEMBER_LAST_NAME, ''))) AS Member_Name
+                FROM dbo.Member_ICDcodes ICD
+                WHERE CAST(ICD.MEMBER_NUMBER AS VARCHAR(50)) = CAST(HA.Member_Number AS VARCHAR(50))
+                  AND (ICD.MEMBER_FIRST_NAME IS NOT NULL OR ICD.MEMBER_LAST_NAME IS NOT NULL)
+            ) NAME_LOOKUP
+            WHERE CAST(HA.Member_Number AS VARCHAR(50)) = ?
         """
 
-        cursor.execute(patient_query, member_number)
+        cursor.execute(patient_query, str(member_number).strip())
         row = cursor.fetchone()
 
         if not row:
@@ -400,7 +415,7 @@ def get_readmission_patient_profile(member_number: str):
                      LONG_DESCRIPTION,
                      CAST(Year_month AS VARCHAR(10)) AS Year_month
                  FROM dbo.Hospital_Readmission
-                 WHERE Member_Number = ?
+                 WHERE CAST(Member_Number AS VARCHAR(50)) = ?
              )
              SELECT
                  DIAGNOSIS,
@@ -419,7 +434,7 @@ def get_readmission_patient_profile(member_number: str):
                  Last_Visit DESC
         """
 
-        cursor.execute(diagnosis_query, member_number)
+        cursor.execute(diagnosis_query, str(member_number).strip())
         diagnosis_columns = [col[0] for col in cursor.description]
         diagnoses = [dict(zip(diagnosis_columns, d_row)) for d_row in cursor.fetchall()]
 
@@ -435,130 +450,6 @@ def get_readmission_patient_profile(member_number: str):
     except Exception as e:
         print("Database Error:", str(e))
         raise HTTPException(status_code=500, detail="Failed to retrieve patient profile")
-
-    finally:
-        if cursor:
-            cursor.close()
-        if conn:
-            conn.close()
-
-# ==========================================
-# 4. EXPORT PATIENT LIST TO CSV
-# Path: /api/readmission/patients/export
-# ==========================================
-@router.get("/patients/export")
-def export_readmission_patients_csv(
-    search: str = Query("", description="Search by Member ID"),
-    condition: str = Query("ALL", description="Filter by Risk Category (High/Medium/Low Risk)"),
-    status: str = Query("ALL", description="Filter by Actual Readmission Status")
-):
-    conn = None
-    cursor = None
-
-    try:
-        conn = get_connection()
-        cursor = conn.cursor()
-
-        where_clauses = ["1=1"]
-        params = []
-
-        if search.strip():
-            where_clauses.append("CAST(Member_Number AS VARCHAR(50)) LIKE ?")
-            params.append(f"%{search.strip()}%")
-
-        if condition != "ALL":
-            where_clauses.append("""
-                (CASE 
-                    WHEN Risk_Score >= 7.0 THEN 'High Risk'
-                    WHEN Risk_Score >= 4.0 THEN 'Medium Risk'
-                    ELSE 'Low Risk'
-                END) = ?
-            """)
-            params.append(condition)
-
-        if status != "ALL":
-            where_clauses.append("Actual_Readmission_Status = ?")
-            params.append(status)
-
-        where_sql = " AND ".join(where_clauses)
-
-        # Non-paginated query to export all matching records
-        export_query = f"""
-            WITH UniquePatients AS (
-                SELECT
-                    Member_Number,
-                    Age,
-                    Gender,
-                    Tier,
-                    Risk_Score,
-                    CASE 
-                        WHEN Risk_Score >= 7.0 THEN 'High Risk'
-                        WHEN Risk_Score >= 4.0 THEN 'Medium Risk'
-                        ELSE 'Low Risk'
-                    END AS Risk_Category,
-                    Total_Medical_Cost,
-                    Stage1_Admission_Prob_Pct,
-                    Stage1_Readmission_Status,
-                    Actual_Readmission_Status,
-                    Stage2_Predicted_Time_Window,
-                    ROW_NUMBER() OVER (
-                        PARTITION BY Member_Number
-                        ORDER BY PCP_Number
-                    ) AS rn
-                FROM dbo.Hospital_Readmission
-                WHERE {where_sql}
-            )
-            SELECT
-                Member_Number,
-                Age,
-                Gender,
-                Tier,
-                Risk_Score,
-                Risk_Category,
-                Total_Medical_Cost,
-                Stage1_Admission_Prob_Pct,
-                Stage1_Readmission_Status,
-                Actual_Readmission_Status,
-                Stage2_Predicted_Time_Window
-            FROM UniquePatients
-            WHERE rn = 1
-            ORDER BY Member_Number
-        """
-
-        cursor.execute(export_query, params)
-        rows = cursor.fetchall()
-
-        # CSV Generator
-        def iter_csv():
-            output = io.StringIO()
-            writer = csv.writer(output)
-
-            # CSV Headers
-            headers = [
-                "Member Number", "Age", "Gender", "Tier", 
-                "Risk Score", "Risk Category", "Total Medical Cost", 
-                "Readmission Prob (%)", "Predicted Status", 
-                "Actual Status", "Predicted Time Window"
-            ]
-            writer.writerow(headers)
-            yield output.getvalue()
-            output.seek(0)
-            output.truncate(0)
-
-            # Data Rows
-            for row in rows:
-                writer.writerow(list(row))
-                yield output.getvalue()
-                output.seek(0)
-                output.truncate(0)
-
-        response = StreamingResponse(iter_csv(), media_type="text/csv")
-        response.headers["Content-Disposition"] = "attachment; filename=readmission_patients_export.csv"
-        return response
-
-    except Exception as e:
-        print("Database Export Error:", str(e))
-        raise HTTPException(status_code=500, detail="Failed to export CSV report")
 
     finally:
         if cursor:
