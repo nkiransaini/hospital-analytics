@@ -404,7 +404,7 @@ def get_readmission_patient_profile(member_number: str):
         columns = [column[0] for column in cursor.description]
         patient = dict(zip(columns, row))
 
-        # 2. Member Diagnoses Rows
+        # 2. Grouped Member Diagnoses Rows (Used by the Diagnoses History Tab)
         diagnosis_query = """
               WITH Distinct_Member_Diagnosis AS (
                  SELECT DISTINCT
@@ -437,8 +437,28 @@ def get_readmission_patient_profile(member_number: str):
         cursor.execute(diagnosis_query, str(member_number).strip())
         diagnosis_columns = [col[0] for col in cursor.description]
         diagnoses = [dict(zip(diagnosis_columns, d_row)) for d_row in cursor.fetchall()]
-
         patient["Diagnoses"] = diagnoses
+
+        # 3. Raw Individual Chronological Encounters (Returns all 20 encounters without GROUP BY)
+        medical_history_query = """
+            SELECT
+                DIAGNOSIS,
+                Normalized_DIAGNOSIS,
+                DIAGNOSIS_TYPE,
+                SHORT_DESCRIPTION,
+                LONG_DESCRIPTION,
+                CAST(Year_month AS VARCHAR(10)) AS Year_month
+            FROM dbo.Hospital_Readmission
+            WHERE CAST(Member_Number AS VARCHAR(50)) = ?
+              AND Year_month IS NOT NULL
+            ORDER BY 
+                CAST(Year_month AS VARCHAR(10)) DESC
+        """
+
+        cursor.execute(medical_history_query, str(member_number).strip())
+        history_columns = [col[0] for col in cursor.description]
+        medical_history = [dict(zip(history_columns, h_row)) for h_row in cursor.fetchall()]
+        patient["Medical_History"] = medical_history
 
         return {
             "success": True,

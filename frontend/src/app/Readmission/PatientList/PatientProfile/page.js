@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useState, Suspense } from 'react';
+import React, { useEffect, useState, useMemo, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import {
   ArrowLeft,
@@ -11,8 +11,8 @@ import {
   Stethoscope,
   AlertTriangle,
   Search,
-  UserCheck,
-  Sparkles
+  Calendar,
+  Clock
 } from 'lucide-react';
 
 const API_URL = 'http://127.0.0.1:8000';
@@ -27,6 +27,9 @@ function PatientProfileContent() {
   const [searchId, setSearchId] = useState('');
   const [headerSearchId, setHeaderSearchId] = useState('');
   const [isMounted, setIsMounted] = useState(false);
+
+  // Active tab state for the 5 categories
+  const [activeTab, setActiveTab] = useState('diagnoses');
 
   useEffect(() => {
     setIsMounted(true);
@@ -67,7 +70,6 @@ function PatientProfileContent() {
         setLoading(true);
         setError('');
 
-        // Backend FastAPI URL ab match kar diya gaya hai: /api/readmission/patient/{member_number}
         const response = await fetch(
           `${API_URL}/api/readmission/patient/${encodeURIComponent(memberNumber)}`
         );
@@ -97,7 +99,6 @@ function PatientProfileContent() {
     fetchPatient();
   }, [memberNumber]);
 
-  // Consistent currency formatting across Server & Client
   const fmtMoney = (val) => {
     if (!isMounted) return `$${Number(val || 0).toFixed(2)}`;
     return `$${Number(val || 0).toLocaleString('en-US', {
@@ -119,32 +120,69 @@ function PatientProfileContent() {
     }
   };
 
+  const parseDateValue = (d) => {
+    if (!d) return 0;
+    const str = String(d).trim();
+    if (/^\d{6}$/.test(str)) {
+      const yr = str.substring(0, 4);
+      const mo = str.substring(4, 6);
+      return new Date(`${yr}-${mo}-01`).getTime() || 0;
+    }
+    const t = new Date(str).getTime();
+    return isNaN(t) ? 0 : t;
+  };
+
+  const formatDisplayDate = (d) => {
+    if (!d) return 'N/A';
+    const str = String(d).trim();
+    if (/^\d{6}$/.test(str)) {
+      const yr = str.substring(0, 4);
+      const moIndex = parseInt(str.substring(4, 6), 10) - 1;
+      const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+      return `${months[moIndex] || ''} ${yr}`;
+    }
+    return str;
+  };
+
+  // Grouped unique diagnoses (used for the Diagnoses History tab)
+  const diagnoses = Array.isArray(patient?.Diagnoses) ? patient.Diagnoses : [];
+
+  // All individual visits from backend; fallback to Diagnoses if not provided
+  const rawEncounters = useMemo(() => {
+    if (Array.isArray(patient?.Medical_History) && patient.Medical_History.length > 0) {
+      return patient.Medical_History;
+    }
+    return diagnoses;
+  }, [patient, diagnoses]);
+
+  // Sort all raw encounters descending (newest first) for Medical History
+  const sortedMedicalHistory = useMemo(() => {
+    if (!rawEncounters.length) return [];
+    return [...rawEncounters].sort((a, b) => {
+      const dateA = a.Year_month || a.Last_Visit || a.DATE || a.VISIT_DATE || '';
+      const dateB = b.Year_month || b.Last_Visit || b.DATE || b.VISIT_DATE || '';
+      return parseDateValue(dateB) - parseDateValue(dateA);
+    });
+  }, [rawEncounters]);
+
   if (loading) {
     return (
       <div className="min-h-[80vh] flex items-center justify-center bg-slate-50/50">
         <div className="flex flex-col items-center gap-3 bg-white p-8 rounded-2xl border border-slate-200/80 shadow-xs">
           <div className="w-10 h-10 border-4 border-slate-200 border-t-sky-600 rounded-full animate-spin" />
-          <p className="text-sm font-semibold text-slate-600">
-            Loading member profile...
-          </p>
+          <p className="text-sm font-semibold text-slate-600">Loading member profile...</p>
         </div>
       </div>
     );
   }
 
-  // Centered Search Screen (When ID is missing in URL)
   if (!memberNumber && !patient) {
     return (
-      <div className="min-h-[85vh] flex items-center justify-center bg-slate-50/60 px-4 py-12">
+      <div className="min-h-[80vh] flex items-center justify-center bg-slate-50/60 px-4 py-12">
         <div className="w-full max-w-lg bg-white border border-slate-200/80 rounded-3xl shadow-xl p-8 sm:p-10 text-center space-y-6 relative overflow-hidden">
-          <div className="absolute -top-12 -right-12 w-32 h-32 bg-sky-100 rounded-full blur-2xl opacity-70 pointer-events-none" />
-          <div className="absolute -bottom-12 -left-12 w-32 h-32 bg-indigo-100 rounded-full blur-2xl opacity-70 pointer-events-none" />
-
           <div className="relative mx-auto w-16 h-16 rounded-2xl bg-gradient-to-tr from-sky-50 to-indigo-50 border border-sky-100 flex items-center justify-center shadow-xs">
             <Search size={28} className="text-sky-600" />
-            <Sparkles size={14} className="absolute top-2 right-2 text-indigo-500" />
           </div>
-
           <div className="space-y-2">
             <h2 className="text-2xl font-extrabold tracking-tight text-slate-900">
               Member Profile Search
@@ -153,7 +191,6 @@ function PatientProfileContent() {
               Please enter a Member ID to view Member details.
             </p>
           </div>
-
           <form onSubmit={handleSearch} className="space-y-3">
             <div className="relative flex items-center">
               <input
@@ -167,13 +204,12 @@ function PatientProfileContent() {
               <Search size={18} className="absolute left-4 text-slate-400" />
               <button
                 type="submit"
-                className="absolute right-1.5 px-4 py-2.5 text-xs font-bold text-white bg-sky-600 hover:bg-sky-700 active:scale-[0.98] rounded-xl transition-all shadow-sm flex items-center gap-1.5"
+                className="absolute right-1.5 px-4 py-2.5 text-xs font-bold text-white bg-sky-600 hover:bg-sky-700 active:scale-[0.98] rounded-xl transition-all shadow-sm"
               >
-                <span>Search</span>
+                Search
               </button>
             </div>
           </form>
-
           <div className="pt-4 border-t border-slate-100">
             <a
               href="/Readmission/PatientList"
@@ -196,12 +232,8 @@ function PatientProfileContent() {
             <AlertTriangle size={26} className="text-red-500" />
           </div>
           <div className="space-y-1">
-            <h2 className="text-lg font-bold text-slate-900">
-              Unable to Load Member Profile
-            </h2>
-            <p className="text-sm text-slate-500">
-              {error || 'Patient information could not be found in the system.'}
-            </p>
+            <h2 className="text-lg font-bold text-slate-900">Unable to Load Member Profile</h2>
+            <p className="text-sm text-slate-500">{error || 'Patient information could not be found.'}</p>
           </div>
           <a
             href="/Readmission/PatientList"
@@ -215,10 +247,17 @@ function PatientProfileContent() {
     );
   }
 
-  const diagnoses = Array.isArray(patient.Diagnoses) ? patient.Diagnoses : [];
+  const tabs = [
+    { id: 'diagnoses', label: 'Diagnoses History', icon: FileText, count: diagnoses.length },
+    { id: 'clinical', label: 'Clinical Utilization', icon: Stethoscope },
+    { id: 'risk', label: 'Risk & Admission Prediction', icon: ShieldAlert },
+    { id: 'costs', label: 'Costs & Claims', icon: DollarSign },
+    { id: 'admin', label: 'Administrative & Pharmacy', icon: Pill }
+  ];
 
   return (
-    <div className="w-full px-4 sm:px-6 lg:px-8 py-8 font-sans space-y-6 text-slate-900 bg-slate-50/50 min-h-screen">
+    <div className="p-4 sm:p-6 lg:p-8 space-y-5 h-full max-w-[1700px] mx-auto">
+      {/* Top Search & Navigation Bar */}
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <form onSubmit={handleHeaderSearch} className="relative flex items-center w-full sm:w-72">
           <input
@@ -231,7 +270,7 @@ function PatientProfileContent() {
           <Search size={14} className="absolute left-3 text-slate-400" />
           <button
             type="submit"
-            className="absolute right-1 px-2.5 py-1 text-[11px] font-bold text-white bg-sky-600 hover:bg-sky-700 active:scale-[0.97] rounded-lg transition-all shadow-xs"
+            className="absolute right-1 px-2.5 py-1 text-[11px] font-bold text-white bg-sky-600 hover:bg-sky-700 active:scale-[0.97] rounded-lg transition-all"
           >
             Search
           </button>
@@ -239,353 +278,444 @@ function PatientProfileContent() {
 
         <a
           href="/Readmission/PatientList"
-          className="inline-flex items-center gap-2 px-4 py-2 text-xs font-bold text-slate-700 bg-white border border-slate-200 rounded-xl shadow-xs hover:bg-slate-50 hover:text-slate-900 transition ml-auto"
+          className="inline-flex items-center gap-2 px-3.5 py-2 text-xs font-bold text-slate-700 bg-white border border-slate-200 rounded-xl shadow-xs hover:bg-slate-50 hover:text-slate-900 transition ml-auto"
         >
-          <ArrowLeft size={16} />
+          <ArrowLeft size={15} />
           Back to Member List
         </a>
       </div>
 
-      {/* Patient Header Banner (Updated with Member Name) */}
-      <div className="bg-white p-6 rounded-2xl border border-slate-200/80 shadow-xs space-y-6">
-        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-          <div className="space-y-1">
-            <div className="flex items-center gap-2 flex-wrap">
-              <UserCheck size={22} className="text-sky-600 shrink-0" />
-              <h1 className="text-2xl font-black tracking-tight text-slate-900">
-                Member #{patient.Member_Number}
-              </h1>
-              {patient.Member_Name && patient.Member_Name !== 'N/A' && (
-                <span className="text-lg font-bold text-slate-700 sm:border-l sm:border-slate-200 sm:pl-3">
-                  {patient.Member_Name}
+      {/* Main Two-Column View */}
+      <div className="flex flex-col lg:flex-row items-start gap-6">
+        
+        {/* ================= LEFT COLUMN: STICKY MEMBER DETAILS & TALL Clinical Timeline ================= */}
+        <div className="w-full lg:w-72 shrink-0 lg:sticky lg:top-4 flex flex-col gap-4">
+          
+          {/* Member Card */}
+          <aside className="bg-white rounded-2xl border border-slate-200/80 p-4 shadow-xs space-y-3 shrink-0">
+            <div className="flex flex-col items-center text-center space-y-2 pt-0.5">
+              <div className="w-12 h-12 rounded-xl bg-sky-600 text-white font-black text-lg flex items-center justify-center shadow-sm shadow-sky-500/20">
+                {(patient.Member_Name && patient.Member_Name !== 'N/A'
+                  ? patient.Member_Name.charAt(0)
+                  : patient.Member_Number?.toString().charAt(0) || 'M'
+                ).toUpperCase()}
+              </div>
+
+              <div>
+                <h2 className="text-sm font-extrabold text-slate-900 leading-tight">
+                  {patient.Member_Name && patient.Member_Name !== 'N/A'
+                    ? patient.Member_Name
+                    : `Member #${patient.Member_Number}`}
+                </h2>
+                <p className="text-[11px] font-semibold text-slate-400">
+                  Member ID: #{patient.Member_Number}
+                </p>
+              </div>
+
+              <div className="flex flex-wrap items-center justify-center gap-1.5 w-full">
+                <span
+                  className={`inline-flex items-center px-2 py-0.5 rounded-lg text-[10px] font-bold border ${getRiskBadgeStyles(
+                    patient.Risk_Category
+                  )}`}
+                >
+                  {patient.Risk_Category || 'N/A'}
                 </span>
+                <span
+                  className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10px] font-bold border ${
+                    patient.Actual_Readmission_Status === 'Readmission' ||
+                    patient.Actual_Readmission_Status === 'Admission'
+                      ? 'bg-amber-50 text-amber-800 border-amber-300'
+                      : 'bg-slate-100 text-slate-600 border-slate-200'
+                  }`}
+                >
+                  {patient.Actual_Readmission_Status || 'No Admission'}
+                </span>
+              </div>
+            </div>
+
+            {/* Metadata Rows */}
+            <div className="border-t border-slate-100 pt-2.5 space-y-1.5 text-xs">
+              <div className="flex justify-between items-center">
+                <span className="text-slate-500 font-medium">Gender</span>
+                <span className="font-bold text-slate-800">{patient.Gender || 'N/A'}</span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-slate-500 font-medium">Age</span>
+                <span className="font-bold text-slate-800">{patient.Age ?? 'N/A'}</span>
+              </div>
+              <div className="flex justify-between items-start gap-2">
+                <span className="text-slate-500 font-medium">Tier</span>
+                <span className="font-bold text-slate-800 text-right">{patient.Tier || 'N/A'}</span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-slate-500 font-medium">Capitation</span>
+                <span className="font-bold text-slate-800">{patient.Capitation ?? 'N/A'}</span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-slate-500 font-medium">Unique Claims</span>
+                <span className="font-bold text-slate-800">{patient.Unique_Claims ?? 'N/A'}</span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-slate-500 font-medium">Unique Providers</span>
+                <span className="font-bold text-slate-800">{patient.Unique_Providers ?? 'N/A'}</span>
+              </div>
+              <div className="flex justify-between items-start gap-2">
+                <span className="text-slate-500 font-medium">Source File</span>
+                <span className="font-bold text-slate-800 text-right break-all">
+                  {patient.Source_File_Name || 'N/A'}
+                </span>
+              </div>
+            </div>
+          </aside>
+
+          {/* Expanded Clinical Timeline Card (Displays all 20 encounters in descending order) */}
+          <div className="bg-white rounded-2xl border border-slate-200/80 p-4 shadow-xs flex flex-col h-[380px] sm:h-[420px]">
+            <div className="flex items-center justify-between pb-2.5 border-b border-slate-100 shrink-0">
+              <div className="flex items-center gap-1.5">
+                <Clock size={15} className="text-sky-600" />
+                <h3 className="font-extrabold text-xs text-slate-900 uppercase tracking-wider">
+                  Clinical Timeline
+                </h3>
+              </div>
+              <span className="text-[10px] font-bold text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">
+                {sortedMedicalHistory.length}
+              </span>
+            </div>
+
+            {/* Scrollable list with independent scrolling */}
+            <div className="flex-1 overflow-y-auto pr-1 pt-2 space-y-3 divide-y divide-slate-50">
+              {sortedMedicalHistory.length > 0 ? (
+                sortedMedicalHistory.map((item, idx) => {
+                  const title =
+                    item.SHORT_DESCRIPTION ||
+                    item.LONG_DESCRIPTION ||
+                    item.DIAGNOSIS ||
+                    'Diagnosis';
+                  const dateVal =
+                    item.Year_month || item.Last_Visit || item.DATE || item.VISIT_DATE;
+
+                  return (
+                    <div key={`med-history-${idx}`} className={`flex items-start gap-2.5 text-xs ${idx > 0 ? 'pt-2.5' : ''}`}>
+                      <span className="w-2 h-2 rounded-full bg-sky-500 shrink-0 mt-1" />
+                      <div className="space-y-0.5 min-w-0 flex-1">
+                        <p className="font-bold text-slate-800 leading-snug break-words">
+                          {title}
+                        </p>
+                        <p className="text-[11px] text-slate-400 font-medium">
+                          {formatDisplayDate(dateVal)}
+                        </p>
+                      </div>
+                    </div>
+                  );
+                })
+              ) : (
+                <p className="text-xs text-slate-400 text-center py-10">
+                  No Clinical Timeline available.
+                </p>
               )}
             </div>
-            <div className="text-xs sm:text-sm text-slate-500 font-medium">
-              Age:{' '}
-              <span className="font-bold text-slate-700">
-                {patient.Age ?? 'N/A'}
-              </span>
-              {' | '}
-              Gender:{' '}
-              <span className="font-bold text-slate-700">
-                {patient.Gender || 'N/A'}
-              </span>
-              {' | '}
-              Tier:{' '}
-              <span className="font-bold text-slate-700">
-                {patient.Tier || 'N/A'}
-              </span>
-            </div>
           </div>
 
-          <div className="flex items-center gap-2 flex-wrap">
-            <span
-              className={`inline-flex items-center px-3 py-1 rounded-xl text-xs font-bold border ${getRiskBadgeStyles(
-                patient.Risk_Category
-              )}`}
-            >
-              {patient.Risk_Category || 'N/A'}
-            </span>
-            <span
-              className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-xl text-xs font-bold border ${
-                patient.Actual_Readmission_Status === 'Readmission' || patient.Actual_Readmission_Status === 'Admission'
-                  ? 'bg-amber-50 text-amber-800 border-amber-300'
-                  : 'bg-slate-100 text-slate-600 border-slate-200'
-              }`}
-            >
-              Actual: {patient.Actual_Readmission_Status || 'No Admission'}
-            </span>
-          </div>
         </div>
 
-        <div className="pt-4 border-t border-slate-100 grid grid-cols-2 sm:grid-cols-4 gap-4 text-xs">
-          <div>
-            <p className="text-slate-500 font-medium">Source File</p>
-            <p className="mt-0.5 font-bold text-slate-800 break-all">
-              {patient.Source_File_Name || 'N/A'}
-            </p>
-          </div>
-          <div>
-            <p className="text-slate-500 font-medium">Unique Claims</p>
-            <p className="mt-0.5 font-bold text-slate-800">
-              {patient.Unique_Claims ?? 'N/A'}
-            </p>
-          </div>
-          <div>
-            <p className="text-slate-500 font-medium">Unique Providers</p>
-            <p className="mt-0.5 font-bold text-slate-800">
-              {patient.Unique_Providers ?? 'N/A'}
-            </p>
-          </div>
-          <div>
-            <p className="text-slate-500 font-medium">Capitation</p>
-            <p className="mt-0.5 font-bold text-slate-800">
-              {patient.Capitation ?? 'N/A'}
-            </p>
-          </div>
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        <div className="bg-white rounded-2xl border border-slate-200/80 shadow-xs overflow-hidden flex flex-col">
-          <div className="p-4 border-b border-slate-100 bg-slate-50/50 flex items-center gap-2">
-            <ShieldAlert size={18} className="text-red-500" />
-            <h3 className="font-bold text-sm text-slate-800">
-              Risk & Admission Prediction
-            </h3>
-          </div>
-          <div className="p-4 divide-y divide-slate-100 text-xs">
-            <div className="py-2.5 flex justify-between items-center">
-              <span className="text-slate-500 font-medium">Admission Probability:</span>
-              <span className="font-extrabold text-slate-900 text-sm">
-                {patient.Stage1_Admission_Prob_Pct ?? 'N/A'}
-                {patient.Stage1_Admission_Prob_Pct != null && '%'}
-              </span>
-            </div>
-            <div className="py-2.5 flex justify-between items-center">
-              <span className="text-slate-500 font-medium">Risk Score:</span>
-              <span className="font-bold text-slate-800">{patient.Risk_Score ?? 'N/A'}</span>
-            </div>
-            <div className="py-2.5 flex justify-between items-center">
-              <span className="text-slate-500 font-medium">Model Status:</span>
-              <span className="font-semibold text-slate-800">{patient.Stage1_Readmission_Status || 'N/A'}</span>
-            </div>
-            <div className="py-2.5 flex justify-between items-center">
-              <span className="text-slate-500 font-medium">Actual Status:</span>
-              <span className="font-semibold text-slate-800">{patient.Actual_Readmission_Status || 'N/A'}</span>
-            </div>
-            <div className="py-2.5 flex justify-between items-center">
-              <span className="text-slate-500 font-medium">Prediction Result:</span>
-              <span
-                className={`font-bold px-2 py-0.5 rounded-md border ${
-                  patient.Stage1_Prediction_Result === 'True Positive'
-                    ? 'text-emerald-600 bg-emerald-50 border-emerald-200'
-                    : 'text-slate-700 bg-slate-50 border-slate-200'
-                }`}
-              >
-                {patient.Stage1_Prediction_Result || 'N/A'}
-              </span>
-            </div>
-            <div className="py-2.5 flex justify-between items-center">
-              <span className="text-slate-500 font-medium">Prediction Correct:</span>
-              <span className="font-semibold text-slate-800">{patient.Cascade_Prediction_Correct ?? 'N/A'}</span>
-            </div>
-            <div className="py-2.5 flex justify-between items-center">
-              <span className="text-slate-500 font-medium">Target:</span>
-              <span className="font-semibold text-slate-800">{patient.Actual_Target_Bucket ?? 'N/A'}</span>
-            </div>
-            <div className="py-2.5 flex justify-between items-center">
-              <span className="text-slate-500 font-medium">Target Predicted:</span>
-              <span className="font-semibold text-slate-800">{patient.Stage2_Predicted_Time_Window ?? 'N/A'}</span>
-            </div>
-          </div>
-        </div>
-
-        <div className="bg-white rounded-2xl border border-slate-200/80 shadow-xs overflow-hidden flex flex-col">
-          <div className="p-4 border-b border-slate-100 bg-slate-50/50 flex items-center gap-2">
-            <Stethoscope size={18} className="text-blue-500" />
-            <h3 className="font-bold text-sm text-slate-800">Clinical Utilization</h3>
-          </div>
-          <div className="p-4 divide-y divide-slate-100 text-xs">
-            <div className="py-2.5 flex justify-between items-center">
-              <span className="text-slate-500 font-medium">Office Visits:</span>
-              <span className="font-bold text-slate-800">{patient.Office_Visits ?? 'N/A'}</span>
-            </div>
-            <div className="py-2.5 flex justify-between items-center">
-              <span className="text-slate-500 font-medium">Outpatient Visits:</span>
-              <span className="font-bold text-slate-800">{patient.Outpatient_Visits ?? 'N/A'}</span>
-            </div>
-            <div className="py-2.5 flex justify-between items-center">
-              <span className="text-slate-500 font-medium">ER Visits:</span>
-              <span className="font-bold text-red-600">{patient.ER_Visits ?? 'N/A'}</span>
-            </div>
-            <div className="py-2.5 flex justify-between items-center">
-              <span className="text-slate-500 font-medium">Dental Visits:</span>
-              <span className="font-bold text-slate-800">{patient.Dental_Visits ?? 'N/A'}</span>
-            </div>
-            <div className="py-2.5 flex justify-between items-center">
-              <span className="text-slate-500 font-medium">Unique Diagnoses:</span>
-              <span className="font-bold text-slate-800">{patient.Unique_Diagnosis ?? 'N/A'}</span>
-            </div>
-            <div className="py-2.5 flex justify-between items-center">
-              <span className="text-slate-500 font-medium">Unique Procedures:</span>
-              <span className="font-bold text-slate-800">{patient.Unique_Procedures ?? 'N/A'}</span>
-            </div>
-            <div className="py-2.5 flex justify-between items-center">
-              <span className="text-slate-500 font-medium">Unique Claims:</span>
-              <span className="font-bold text-slate-800">{patient.Unique_Claims ?? 'N/A'}</span>
-            </div>
-            <div className="py-2.5 flex justify-between items-center">
-              <span className="text-slate-500 font-medium">Unique Providers:</span>
-              <span className="font-bold text-slate-800">{patient.Unique_Providers ?? 'N/A'}</span>
-            </div>
-          </div>
-        </div>
-
-        <div className="bg-white rounded-2xl border border-slate-200/80 shadow-xs overflow-hidden flex flex-col">
-          <div className="p-4 border-b border-slate-100 bg-slate-50/50 flex items-center gap-2">
-            <DollarSign size={18} className="text-emerald-600" />
-            <h3 className="font-bold text-sm text-slate-800">Costs & Claims</h3>
-          </div>
-          <div className="p-4 divide-y divide-slate-100 text-xs">
-            <div className="py-2.5 flex justify-between items-center">
-              <span className="text-slate-500 font-medium">Total Medical Cost:</span>
-              <span className="font-extrabold text-slate-900">{fmtMoney(patient.Total_Medical_Cost)}</span>
-            </div>
-            <div className="py-2.5 flex justify-between items-center">
-              <span className="text-slate-500 font-medium">Average Claim Cost:</span>
-              <span className="font-bold text-slate-800">{fmtMoney(patient.Avg_Claim_Cost)}</span>
-            </div>
-            <div className="py-2.5 flex justify-between items-center">
-              <span className="text-slate-500 font-medium">Max Claim Cost:</span>
-              <span className="font-bold text-slate-800">{fmtMoney(patient.Max_Claim_Cost)}</span>
-            </div>
-            <div className="py-2.5 flex justify-between items-center">
-              <span className="text-slate-500 font-medium">Pharmacy Cost:</span>
-              <span className="font-bold text-slate-800">{fmtMoney(patient.Pharmacy_Cost)}</span>
-            </div>
-            <div className="py-2.5 flex justify-between items-center">
-              <span className="text-slate-500 font-medium">Dental Cost:</span>
-              <span className="font-bold text-slate-800">{fmtMoney(patient.Dental_Cost)}</span>
-            </div>
-            <div className="py-2.5 flex justify-between items-center">
-              <span className="text-slate-500 font-medium">Total Medical Claims:</span>
-              <span className="font-bold text-slate-800">{patient.Total_Medical_Claims ?? 'N/A'}</span>
-            </div>
-            <div className="py-2.5 flex justify-between items-center">
-              <span className="text-slate-500 font-medium">IPA Claims Budget:</span>
-              <span className="font-bold text-slate-800">{fmtMoney(patient.IPA_Claims_Budget)}</span>
-            </div>
-          </div>
-        </div>
-
-        <div className="bg-white rounded-2xl border border-slate-200/80 shadow-xs overflow-hidden flex flex-col">
-          <div className="p-4 border-b border-slate-100 bg-slate-50/50 flex items-center gap-2">
-            <Pill size={18} className="text-purple-600" />
-            <h3 className="font-bold text-sm text-slate-800">Administrative & Pharmacy</h3>
-          </div>
-          <div className="p-4 divide-y divide-slate-100 text-xs">
-            <div className="py-2.5 flex justify-between items-center">
-              <span className="text-slate-500 font-medium">PCP Number:</span>
-              <span className="font-bold text-slate-800">{patient.PCP_Number || 'N/A'}</span>
-            </div>
-            <div className="py-2.5 flex justify-between items-center">
-              <span className="text-slate-500 font-medium">Group Number:</span>
-              <span className="font-bold text-slate-800">{patient.Group_Number || 'N/A'}</span>
-            </div>
-            <div className="py-2.5 flex justify-between items-center">
-              <span className="text-slate-500 font-medium">Capitation:</span>
-              <span className="font-bold text-slate-800">{patient.Capitation ?? 'N/A'}</span>
-            </div>
-            <div className="py-2.5 flex justify-between items-center">
-              <span className="text-slate-500 font-medium">Prescription Count:</span>
-              <span className="font-bold text-slate-800">{patient.Prescription_Count ?? 'N/A'}</span>
-            </div>
-            <div className="py-2.5 flex justify-between items-center">
-              <span className="text-slate-500 font-medium">Unique Drugs:</span>
-              <span className="font-bold text-slate-800">{patient.Unique_Drugs ?? 'N/A'}</span>
-            </div>
-            <div className="py-2.5 flex justify-between items-center">
-              <span className="text-slate-500 font-medium">Drug Classes:</span>
-              <span className="font-bold text-slate-800">{patient.Drug_Classes ?? 'N/A'}</span>
-            </div>
-            <div className="py-2.5 flex justify-between items-center">
-              <span className="text-slate-500 font-medium">Average Days Supply:</span>
-              <span className="font-bold text-slate-800">{patient.Avg_Days_Supply ?? 'N/A'}</span>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Diagnoses History Component */}
-      <div className="bg-white rounded-2xl border border-slate-200/80 shadow-xs overflow-hidden">
-        <div className="p-4 border-b border-slate-100 bg-slate-50/50 flex items-center gap-2">
-          <FileText size={18} className="text-indigo-500" />
-          <h3 className="font-bold text-sm text-slate-800">Diagnoses History</h3>
-          <span className="ml-auto text-xs font-bold text-slate-500">
-            {diagnoses.length} conditions
-          </span>
-        </div>
-        
-        <div className="p-4">
-          {diagnoses.length > 0 ? (
-            /* 2-Column Responsive Grid */
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {diagnoses.map((diagnosis, index) => (
-                <div
-                  key={`${diagnosis.DIAGNOSIS || 'diag'}-${index}`}
-                  className="p-5 rounded-2xl border border-slate-200/90 bg-white hover:border-slate-300 transition-shadow shadow-xs flex flex-col justify-between space-y-3"
+        {/* ================= RIGHT COLUMN: 5 TABS WITH INDEPENDENT SCROLLBAR ================= */}
+        <div className="flex-1 min-w-0 bg-white rounded-2xl border border-slate-200/80 shadow-xs flex flex-col overflow-hidden max-h-[calc(100vh-6.5rem)] lg:sticky lg:top-4">
+          
+          {/* Tab Navigation (Fixed header of right panel) */}
+          <div className="border-b border-slate-200 px-4 sm:px-6 flex items-center gap-1 overflow-x-auto no-scrollbar shrink-0 bg-white z-10">
+            {tabs.map((tab) => {
+              const Icon = tab.icon;
+              const isActive = activeTab === tab.id;
+              return (
+                <button
+                  key={tab.id}
+                  onClick={() => setActiveTab(tab.id)}
+                  className={`flex items-center gap-2 py-3 px-3.5 border-b-2 font-bold text-xs whitespace-nowrap transition-all cursor-pointer ${
+                    isActive
+                      ? 'border-sky-600 text-sky-600 bg-sky-50/40'
+                      : 'border-transparent text-slate-500 hover:text-slate-800 hover:border-slate-300'
+                  }`}
                 >
-                  <div className="space-y-2">
-                    {/* Diagnosis Header: Title & Badge */}
-                    <div className="flex items-start justify-between gap-2">
-                      <h4 className="text-sm font-black text-slate-900 leading-snug">
-                        {diagnosis.SHORT_DESCRIPTION ||
-                          diagnosis.LONG_DESCRIPTION ||
-                          diagnosis.DIAGNOSIS ||
-                          'Diagnosis'}
-                      </h4>
-                      {diagnosis.DIAGNOSIS_TYPE && (
-                        <span className="px-2 py-0.5 text-[10px] font-extrabold rounded-md bg-indigo-50 text-indigo-700 border border-indigo-200 uppercase tracking-wider shrink-0">
-                          {diagnosis.DIAGNOSIS_TYPE}
-                        </span>
-                      )}
-                    </div>
+                  <Icon size={15} />
+                  <span>{tab.label}</span>
+                  {tab.count !== undefined && (
+                    <span
+                      className={`text-[10px] px-1.5 py-0.5 rounded-full font-extrabold ${
+                        isActive ? 'bg-sky-100 text-sky-700' : 'bg-slate-100 text-slate-600'
+                      }`}
+                    >
+                      {tab.count}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
 
-                    {/* Codes */}
-                    <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-500">
-                      <div>
-                        Diagnosis: <span className="font-bold text-slate-800">{diagnosis.DIAGNOSIS || 'N/A'}</span>
-                      </div>
-                      <div>
-                        Normalized: <span className="font-bold text-slate-800">{diagnosis.Normalized_DIAGNOSIS || 'N/A'}</span>
-                      </div>
-                    </div>
-
-                    {/* Description */}
-                    {diagnosis.LONG_DESCRIPTION && (
-                      <p className="text-xs text-slate-600 leading-relaxed font-medium line-clamp-2">
-                        {diagnosis.LONG_DESCRIPTION}
-                      </p>
-                    )}
+          {/* DEDICATED INDEPENDENT SCROLL AREA FOR TAB CONTENT */}
+          <div className="flex-1 overflow-y-auto p-6 space-y-4">
+            
+            {/* TAB 1: DIAGNOSES HISTORY */}
+            {activeTab === 'diagnoses' && (
+              <div className="space-y-4">
+                <div className="flex items-center justify-between pb-2 border-b border-slate-100">
+                  <div className="flex items-center gap-2">
+                    <FileText size={17} className="text-sky-600" />
+                    <h3 className="font-bold text-sm text-slate-900">Diagnoses History</h3>
                   </div>
+                  <span className="text-xs font-bold text-slate-500 bg-slate-50 border border-slate-200 px-2.5 py-1 rounded-lg">
+                    {diagnoses.length} Records
+                  </span>
+                </div>
 
-                  {/* Visit Stats Footer */}
-                  <div className="pt-3 border-t border-slate-100/80 space-y-1.5 text-xs">
-                    <div className="flex items-center justify-between">
-                      <span className="text-slate-500 font-medium">Total Visits:</span>
-                      <span className="font-bold px-2 py-0.5 bg-slate-100 text-slate-800 rounded-md text-[11px]">
-                        {diagnosis.Total_Visits ?? 1}
-                      </span>
-                    </div>
+                {diagnoses.length > 0 ? (
+                  <div className="flex flex-col gap-3">
+                    {diagnoses.map((diagnosis, index) => (
+                      <div
+                        key={`${diagnosis.DIAGNOSIS || 'diag'}-${index}`}
+                        className="p-4 rounded-xl border border-slate-200/90 bg-white hover:border-sky-300 hover:shadow-xs transition-all flex flex-col md:flex-row md:items-center justify-between gap-4"
+                      >
+                        <div className="space-y-1.5 flex-1 min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="font-mono text-xs font-black text-sky-700 bg-sky-50 px-2 py-0.5 rounded border border-sky-100">
+                              {diagnosis.DIAGNOSIS || 'N/A'}
+                            </span>
+                            {diagnosis.DIAGNOSIS_TYPE && (
+                              <span className="px-2 py-0.5 text-[10px] font-extrabold rounded bg-indigo-50 text-indigo-700 border border-indigo-200 uppercase tracking-wider">
+                                {diagnosis.DIAGNOSIS_TYPE}
+                              </span>
+                            )}
+                            <h4 className="text-sm font-bold text-slate-900 truncate">
+                              {diagnosis.SHORT_DESCRIPTION ||
+                                diagnosis.LONG_DESCRIPTION ||
+                                diagnosis.DIAGNOSIS ||
+                                'Diagnosis Record'}
+                            </h4>
+                          </div>
 
-                    <div className="flex items-center justify-between">
-                      <span className="text-slate-500 font-medium">Last Visit:</span>
-                      <span className="font-bold text-slate-800">
-                        {diagnosis.Last_Visit || diagnosis.Year_month || 'N/A'}
-                      </span>
-                    </div>
+                          {diagnosis.LONG_DESCRIPTION && (
+                            <p className="text-xs text-slate-500 leading-relaxed font-normal">
+                              {diagnosis.LONG_DESCRIPTION}
+                            </p>
+                          )}
 
-                    <div className="pt-1 text-[11px] text-slate-500">
-                      <span className="font-medium">Visit History:</span>
-                      <p className="font-mono font-bold text-slate-700 mt-0.5 break-words">
-                        {diagnosis.Visit_History || diagnosis.Year_month || 'N/A'}
-                      </p>
-                    </div>
+                          <div className="flex items-center gap-4 text-[11px] text-slate-400 font-medium">
+                            <span>
+                              Normalized:{' '}
+                              <b className="text-slate-700">{diagnosis.Normalized_DIAGNOSIS || 'N/A'}</b>
+                            </span>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-6 text-xs shrink-0 border-t md:border-t-0 md:border-l border-slate-100 pt-2 md:pt-0 md:pl-5">
+                          <div className="text-left md:text-right">
+                            <span className="text-[11px] text-slate-400 font-medium block">Total Visits</span>
+                            <span className="font-bold text-slate-800 text-sm">
+                              {diagnosis.Total_Visits ?? 1}
+                            </span>
+                          </div>
+                          <div className="text-left md:text-right">
+                            <span className="text-[11px] text-slate-400 font-medium block">Last Visit</span>
+                            <span className="font-bold text-slate-800 flex items-center gap-1">
+                              <Calendar size={13} className="text-slate-400" />
+                              {diagnosis.Last_Visit || diagnosis.Year_month || 'N/A'}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="py-16 text-center bg-slate-50/50 rounded-2xl border border-slate-200/80">
+                    <FileText size={36} className="mx-auto text-slate-300 mb-2" />
+                    <p className="text-sm font-semibold text-slate-500">No diagnosis records found.</p>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* TAB 2: CLINICAL UTILIZATION */}
+            {activeTab === 'clinical' && (
+              <div className="space-y-4">
+                <div className="flex items-center gap-2 pb-3 border-b border-slate-100">
+                  <Stethoscope size={18} className="text-blue-500" />
+                  <h3 className="font-bold text-sm text-slate-800">Clinical Utilization</h3>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-3 text-xs">
+                  <div className="py-2.5 flex justify-between items-center border-b border-slate-100">
+                    <span className="text-slate-500 font-medium">Office Visits:</span>
+                    <span className="font-bold text-slate-800">{patient.Office_Visits ?? 'N/A'}</span>
+                  </div>
+                  <div className="py-2.5 flex justify-between items-center border-b border-slate-100">
+                    <span className="text-slate-500 font-medium">Outpatient Visits:</span>
+                    <span className="font-bold text-slate-800">{patient.Outpatient_Visits ?? 'N/A'}</span>
+                  </div>
+                  <div className="py-2.5 flex justify-between items-center border-b border-slate-100">
+                    <span className="text-slate-500 font-medium">ER Visits:</span>
+                    <span className="font-bold text-red-600">{patient.ER_Visits ?? 'N/A'}</span>
+                  </div>
+                  <div className="py-2.5 flex justify-between items-center border-b border-slate-100">
+                    <span className="text-slate-500 font-medium">Dental Visits:</span>
+                    <span className="font-bold text-slate-800">{patient.Dental_Visits ?? 'N/A'}</span>
+                  </div>
+                  <div className="py-2.5 flex justify-between items-center border-b border-slate-100">
+                    <span className="text-slate-500 font-medium">Unique Diagnoses:</span>
+                    <span className="font-bold text-slate-800">{patient.Unique_Diagnosis ?? 'N/A'}</span>
+                  </div>
+                  <div className="py-2.5 flex justify-between items-center border-b border-slate-100">
+                    <span className="text-slate-500 font-medium">Unique Procedures:</span>
+                    <span className="font-bold text-slate-800">{patient.Unique_Procedures ?? 'N/A'}</span>
+                  </div>
+                  <div className="py-2.5 flex justify-between items-center border-b border-slate-100">
+                    <span className="text-slate-500 font-medium">Unique Claims:</span>
+                    <span className="font-bold text-slate-800">{patient.Unique_Claims ?? 'N/A'}</span>
+                  </div>
+                  <div className="py-2.5 flex justify-between items-center border-b border-slate-100">
+                    <span className="text-slate-500 font-medium">Unique Providers:</span>
+                    <span className="font-bold text-slate-800">{patient.Unique_Providers ?? 'N/A'}</span>
                   </div>
                 </div>
-              ))}
-            </div>
-          ) : (
-            <div className="py-12 text-center">
-              <FileText size={32} className="mx-auto text-slate-300 mb-2" />
-              <p className="text-sm font-semibold text-slate-500">
-                No diagnosis records found.
-              </p>
-            </div>
-          )}
+              </div>
+            )}
+
+            {/* TAB 3: RISK & ADMISSION PREDICTION */}
+            {activeTab === 'risk' && (
+              <div className="space-y-4">
+                <div className="flex items-center gap-2 pb-3 border-b border-slate-100">
+                  <ShieldAlert size={18} className="text-red-500" />
+                  <h3 className="font-bold text-sm text-slate-800">Risk & Admission Prediction</h3>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-3 text-xs">
+                  <div className="py-2.5 flex justify-between items-center border-b border-slate-100">
+                    <span className="text-slate-500 font-medium">Admission Probability:</span>
+                    <span className="font-extrabold text-slate-900 text-sm">
+                      {patient.Stage1_Admission_Prob_Pct ?? 'N/A'}
+                      {patient.Stage1_Admission_Prob_Pct != null && '%'}
+                    </span>
+                  </div>
+                  <div className="py-2.5 flex justify-between items-center border-b border-slate-100">
+                    <span className="text-slate-500 font-medium">Risk Score:</span>
+                    <span className="font-bold text-slate-800">{patient.Risk_Score ?? 'N/A'}</span>
+                  </div>
+                  <div className="py-2.5 flex justify-between items-center border-b border-slate-100">
+                    <span className="text-slate-500 font-medium">Model Status:</span>
+                    <span className="font-semibold text-slate-800">{patient.Stage1_Readmission_Status || 'N/A'}</span>
+                  </div>
+                  <div className="py-2.5 flex justify-between items-center border-b border-slate-100">
+                    <span className="text-slate-500 font-medium">Actual Status:</span>
+                    <span className="font-semibold text-slate-800">{patient.Actual_Readmission_Status || 'N/A'}</span>
+                  </div>
+                  <div className="py-2.5 flex justify-between items-center border-b border-slate-100">
+                    <span className="text-slate-500 font-medium">Prediction Result:</span>
+                    <span
+                      className={`font-bold px-2 py-0.5 rounded-md border ${
+                        patient.Stage1_Prediction_Result === 'True Positive'
+                          ? 'text-emerald-600 bg-emerald-50 border-emerald-200'
+                          : 'text-slate-700 bg-slate-50 border-slate-200'
+                      }`}
+                    >
+                      {patient.Stage1_Prediction_Result || 'N/A'}
+                    </span>
+                  </div>
+                  <div className="py-2.5 flex justify-between items-center border-b border-slate-100">
+                    <span className="text-slate-500 font-medium">Prediction Correct:</span>
+                    <span className="font-semibold text-slate-800">{patient.Cascade_Prediction_Correct ?? 'N/A'}</span>
+                  </div>
+                  <div className="py-2.5 flex justify-between items-center border-b border-slate-100">
+                    <span className="text-slate-500 font-medium">Target:</span>
+                    <span className="font-semibold text-slate-800">{patient.Actual_Target_Bucket ?? 'N/A'}</span>
+                  </div>
+                  <div className="py-2.5 flex justify-between items-center border-b border-slate-100">
+                    <span className="text-slate-500 font-medium">Target Predicted:</span>
+                    <span className="font-semibold text-slate-800">{patient.Stage2_Predicted_Time_Window ?? 'N/A'}</span>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* TAB 4: COSTS & CLAIMS */}
+            {activeTab === 'costs' && (
+              <div className="space-y-4">
+                <div className="flex items-center gap-2 pb-3 border-b border-slate-100">
+                  <DollarSign size={18} className="text-emerald-600" />
+                  <h3 className="font-bold text-sm text-slate-800">Costs & Claims</h3>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-3 text-xs">
+                  <div className="py-2.5 flex justify-between items-center border-b border-slate-100">
+                    <span className="text-slate-500 font-medium">Total Medical Cost:</span>
+                    <span className="font-extrabold text-slate-900">{fmtMoney(patient.Total_Medical_Cost)}</span>
+                  </div>
+                  <div className="py-2.5 flex justify-between items-center border-b border-slate-100">
+                    <span className="text-slate-500 font-medium">Average Claim Cost:</span>
+                    <span className="font-bold text-slate-800">{fmtMoney(patient.Avg_Claim_Cost)}</span>
+                  </div>
+                  <div className="py-2.5 flex justify-between items-center border-b border-slate-100">
+                    <span className="text-slate-500 font-medium">Max Claim Cost:</span>
+                    <span className="font-bold text-slate-800">{fmtMoney(patient.Max_Claim_Cost)}</span>
+                  </div>
+                  <div className="py-2.5 flex justify-between items-center border-b border-slate-100">
+                    <span className="text-slate-500 font-medium">Pharmacy Cost:</span>
+                    <span className="font-bold text-slate-800">{fmtMoney(patient.Pharmacy_Cost)}</span>
+                  </div>
+                  <div className="py-2.5 flex justify-between items-center border-b border-slate-100">
+                    <span className="text-slate-500 font-medium">Dental Cost:</span>
+                    <span className="font-bold text-slate-800">{fmtMoney(patient.Dental_Cost)}</span>
+                  </div>
+                  <div className="py-2.5 flex justify-between items-center border-b border-slate-100">
+                    <span className="text-slate-500 font-medium">Total Medical Claims:</span>
+                    <span className="font-bold text-slate-800">{patient.Total_Medical_Claims ?? 'N/A'}</span>
+                  </div>
+                  <div className="py-2.5 flex justify-between items-center border-b border-slate-100">
+                    <span className="text-slate-500 font-medium">IPA Claims Budget:</span>
+                    <span className="font-bold text-slate-800">{fmtMoney(patient.IPA_Claims_Budget)}</span>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* TAB 5: ADMINISTRATIVE & PHARMACY */}
+            {activeTab === 'admin' && (
+              <div className="space-y-4">
+                <div className="flex items-center gap-2 pb-3 border-b border-slate-100">
+                  <Pill size={18} className="text-purple-600" />
+                  <h3 className="font-bold text-sm text-slate-800">Administrative & Pharmacy</h3>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-3 text-xs">
+                  <div className="py-2.5 flex justify-between items-center border-b border-slate-100">
+                    <span className="text-slate-500 font-medium">PCP Number:</span>
+                    <span className="font-bold text-slate-800">{patient.PCP_Number || 'N/A'}</span>
+                  </div>
+                  <div className="py-2.5 flex justify-between items-center border-b border-slate-100">
+                    <span className="text-slate-500 font-medium">Group Number:</span>
+                    <span className="font-bold text-slate-800">{patient.Group_Number || 'N/A'}</span>
+                  </div>
+                  <div className="py-2.5 flex justify-between items-center border-b border-slate-100">
+                    <span className="text-slate-500 font-medium">Capitation:</span>
+                    <span className="font-bold text-slate-800">{patient.Capitation ?? 'N/A'}</span>
+                  </div>
+                  <div className="py-2.5 flex justify-between items-center border-b border-slate-100">
+                    <span className="text-slate-500 font-medium">Prescription Count:</span>
+                    <span className="font-bold text-slate-800">{patient.Prescription_Count ?? 'N/A'}</span>
+                  </div>
+                  <div className="py-2.5 flex justify-between items-center border-b border-slate-100">
+                    <span className="text-slate-500 font-medium">Unique Drugs:</span>
+                    <span className="font-bold text-slate-800">{patient.Unique_Drugs ?? 'N/A'}</span>
+                  </div>
+                  <div className="py-2.5 flex justify-between items-center border-b border-slate-100">
+                    <span className="text-slate-500 font-medium">Drug Classes:</span>
+                    <span className="font-bold text-slate-800">{patient.Drug_Classes ?? 'N/A'}</span>
+                  </div>
+                  <div className="py-2.5 flex justify-between items-center border-b border-slate-100">
+                    <span className="text-slate-500 font-medium">Average Days Supply:</span>
+                    <span className="font-bold text-slate-800">{patient.Avg_Days_Supply ?? 'N/A'}</span>
+                  </div>
+                </div>
+              </div>
+            )}
+
+          </div>
         </div>
+
       </div>
     </div>
   );

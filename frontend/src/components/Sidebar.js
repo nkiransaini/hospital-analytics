@@ -1,75 +1,124 @@
 'use client';
-import React from 'react';
+
+import React, { useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Users, UserSquare2, BarChart3, ChevronRight } from 'lucide-react';
+import { 
+  BarChart2, 
+  Users, 
+  User, 
+  ChevronLeft, 
+  ChevronRight 
+} from 'lucide-react';
 
 export default function Sidebar() {
+  const [isOpen, setIsOpen] = useState(false);
   const pathname = usePathname() || '';
-  const currentPath = pathname.toLowerCase();
 
-  // Active module evaluate karo
-  const isAdmission = currentPath.startsWith('/admission');
-  const isReadmission = currentPath.startsWith('/readmission');
+  const isReadmission = pathname.toLowerCase().includes('readmission');
+  
+  // Set the correct module path
+  const modulePrefix = isReadmission ? '/Readmission' : '/Admission';
+  const workspaceTitle = isReadmission ? 'READMISSION WORKSPACE' : 'ADMISSION WORKSPACE';
+  const analyticsTitle = isReadmission ? 'Readmission Analytics' : 'Admission Diagnostics';
 
-  // Agar dono me se koi bhi path active nahi hai to sidebar hide kar do
-  if (!isAdmission && !isReadmission) {
-    return null;
-  }
+  // FIX: If in Readmission, route to /Readmission (or /Readmission/Analytics if that folder exists)
+  // If in Admission, route back to home '/' where the analytics dashboard lives
+  const analyticsHref = isReadmission 
+    ? '/Readmission' // or '/Readmission/Analytics' if you created that subfolder
+    : '/';          // Points to the home page (Hospital Admission Analytics)
 
-  // Active module base path & workspace title
-  const basePath = isAdmission ? '/Admission' : '/Readmission';
-  const workspaceTitle = isAdmission ? 'Admission Workspace' : 'Readmission Workspace';
-
-  // Submenu configuration (Dynamic route URLs based on module)
-  const menuItems = [
-    {
-      title: isAdmission ? "Admission Analytics" : "Readmission Analytics",
-      href: `${basePath}`,
-      icon: BarChart3
-    },
-    {
-      title: "Member List",
-      href: `${basePath}/PatientList`,
-      icon: Users
-    },
-    {
-      title: "Member Profile",
-      href: `${basePath}/PatientList/PatientProfile`,
-      icon: UserSquare2
-    }
-  ];
+  const isProfileActive = pathname.includes('PatientProfile');
+  const isListActive = pathname.includes('PatientList') && !isProfileActive;
+  const isAnalyticsActive = pathname === '/' || pathname.endsWith('/Analytics') || pathname === '/Readmission';
 
   return (
-    <aside className="sticky top-20 h-[calc(100vh-5rem)] w-64 bg-white border-r border-slate-200 p-4 shrink-0 flex flex-col space-y-2 shadow-sm overflow-y-auto">
-      <div className="px-3 py-2 text-xs font-bold text-slate-400 uppercase tracking-wider">
-        {workspaceTitle}
-      </div>
-      
-      <nav className="space-y-1">
-        {menuItems.map((item) => {
-          const Icon = item.icon;
-          const isActive = currentPath === item.href.toLowerCase();
+    <>
+      <aside
+        className={`fixed top-16 left-0 z-40 bg-white border-r border-slate-200 transition-all duration-300 ease-in-out flex flex-col h-[calc(100vh-4rem)] shadow-sm ${
+          isOpen ? 'w-60' : 'w-16'
+        }`}
+      >
+        <div className={`h-full flex flex-col ${isOpen ? 'p-5' : 'p-2 pt-4'}`}>
+          
+          <div className="h-8 flex items-center mb-4 overflow-hidden">
+            {isOpen ? (
+              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 whitespace-nowrap">
+                {workspaceTitle}
+              </span>
+            ) : (
+              <div className="w-2.5 h-2.5 rounded-full bg-sky-500 mx-auto" title={workspaceTitle} />
+            )}
+          </div>
 
-          return (
+          <nav className="space-y-2 flex-1">
+            {/* Top Analytics Button */}
             <Link
-              key={item.href}
-              href={item.href}
-              className={`flex items-center justify-between px-3.5 py-2.5 rounded-xl text-sm font-semibold transition-all ${
-                isActive
-                  ? 'bg-sky-50 text-sky-700 border border-sky-200 shadow-sm'
-                  : 'text-slate-600 hover:text-sky-600 hover:bg-slate-50'
+              href={analyticsHref}
+              title={!isOpen ? analyticsTitle : undefined}
+              className={`flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold transition ${
+                !isOpen ? 'justify-center px-0' : ''
+              } ${
+                isAnalyticsActive
+                  ? 'bg-sky-50 text-sky-700 font-bold border border-sky-100'
+                  : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
               }`}
             >
-              <div className="flex items-center gap-3">
-                <Icon size={18} className={isActive ? 'text-sky-600' : 'text-slate-400'} />
-                <span>{item.title}</span>
-              </div>
-              {isActive && <ChevronRight size={16} className="text-sky-600" />}
+              <BarChart2 size={18} className={`shrink-0 ${isAnalyticsActive ? 'text-sky-600' : 'text-slate-400'}`} />
+              {isOpen && <span className="whitespace-nowrap">{analyticsTitle}</span>}
             </Link>
-          );
-        })}
-      </nav>
-    </aside>
+
+            {/* Member List Button */}
+            <Link
+              href={`${modulePrefix}/PatientList`}
+              title={!isOpen ? 'Member List' : undefined}
+              className={`flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold transition ${
+                !isOpen ? 'justify-center px-0' : ''
+              } ${
+                isListActive
+                  ? 'bg-sky-50 text-sky-700 font-bold border border-sky-100'
+                  : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
+              }`}
+            >
+              <Users size={18} className={`shrink-0 ${isListActive ? 'text-sky-600' : 'text-slate-400'}`} />
+              {isOpen && <span className="whitespace-nowrap">Member List</span>}
+            </Link>
+
+            {/* Member Profile Button */}
+            <Link
+              href={`${modulePrefix}/PatientList/PatientProfile`}
+              title={!isOpen ? 'Member Profile' : undefined}
+              className={`flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-bold transition ${
+                !isOpen ? 'justify-center px-0' : ''
+              } ${
+                isProfileActive
+                  ? 'bg-sky-50 text-sky-700 border border-sky-100'
+                  : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
+              }`}
+            >
+              <div className={`flex items-center gap-3 ${!isOpen ? 'justify-center' : ''}`}>
+                <User size={18} className={`shrink-0 ${isProfileActive ? 'text-sky-600' : 'text-slate-400'}`} />
+                {isOpen && <span className="whitespace-nowrap">Member Profile</span>}
+              </div>
+              {isOpen && <ChevronRight size={14} className="text-sky-400" />}
+            </Link>
+          </nav>
+        </div>
+
+        <button
+          onClick={() => setIsOpen(!isOpen)}
+          title={isOpen ? 'Collapse' : 'Expand'}
+          className="absolute -right-3 top-10 h-7 w-6 bg-white hover:bg-slate-100 text-slate-600 border border-slate-200 rounded-r-md shadow-sm flex items-center justify-center cursor-pointer transition-colors z-50"
+        >
+          {isOpen ? <ChevronLeft size={13} /> : <ChevronRight size={13} />}
+        </button>
+      </aside>
+
+      <div
+        className={`shrink-0 transition-all duration-300 ease-in-out pointer-events-none ${
+          isOpen ? 'w-60' : 'w-16'
+        }`}
+      />
+    </>
   );
 }

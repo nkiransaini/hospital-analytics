@@ -390,7 +390,7 @@ def get_patient_profile(member_number: str):
         columns = [column[0] for column in cursor.description]
         patient = dict(zip(columns, row))
 
-        # 2. Diagnoses history
+        # 2. Diagnoses history (Grouped for unique conditions in Tabs)
         diagnoses = []
         try:
             diagnosis_query = """
@@ -431,6 +431,34 @@ def get_patient_profile(member_number: str):
             diagnoses = []
 
         patient["Diagnoses"] = diagnoses
+
+        # 3. Clinical Timeline / Medical History (All raw encounters without GROUP BY)
+        medical_history = []
+        try:
+            medical_history_query = """
+                SELECT
+                    DIAGNOSIS,
+                    Normalized_DIAGNOSIS,
+                    DIAGNOSIS_TYPE,
+                    SHORT_DESCRIPTION,
+                    LONG_DESCRIPTION,
+                    CAST(Year_month AS VARCHAR(10)) AS Year_month
+                FROM dbo.Hospital_Admission
+                WHERE CAST(Member_Number AS VARCHAR(50)) = ?
+                  AND Year_month IS NOT NULL
+                ORDER BY 
+                    CAST(Year_month AS VARCHAR(10)) DESC
+            """
+            cursor.execute(medical_history_query, str(member_number).strip())
+            history_columns = [column[0] for column in cursor.description]
+            medical_history = [
+                dict(zip(history_columns, h_row))
+                for h_row in cursor.fetchall()
+            ]
+        except Exception:
+            medical_history = []
+
+        patient["Medical_History"] = medical_history
 
         return {
             "success": True,

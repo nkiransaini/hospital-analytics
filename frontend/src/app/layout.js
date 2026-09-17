@@ -29,9 +29,9 @@ export default function RootLayout({ children }) {
         
         {/* Main Content Layout with Left Sidebar */}
         <div className="flex flex-1 items-start">
-  <Sidebar />
-  <main className="flex-1 min-w-0">{children}</main>
-</div>
+          <Sidebar />
+          <main className="flex-1 min-w-0">{children}</main>
+        </div>
       </body>
     </html>
   );
