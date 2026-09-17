@@ -1,7 +1,6 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
-import ExportCSVButton from '@/components/ExportCSVButton';
 import {
   Search,
   Filter,
@@ -273,22 +272,12 @@ export default function ReadmissionPatientList() {
                 <button
                   onClick={handleResetFilters}
                   type="button"
-                  className="text-xs text-slate-600 flex items-center gap-1.5 bg-slate-100 hover:bg-slate-200 px-3 py-1.5 rounded-xl font-semibold transition"
+                  className="text-xs text-slate-600 flex items-center gap-1.5 bg-slate-100 hover:bg-slate-200 px-3 py-1.5 rounded-xl font-semibold transition cursor-pointer"
                 >
                   <X size={13} />
                   Reset Filters
                 </button>
               )}
-              <ExportCSVButton
-                endpoint="/api/readmission/patients/export" // Update to your exact API export endpoint
-                queryParams={{
-                search: debouncedSearch,
-                condition: selectedCondition,
-                status: selectedStatus
-             }}
-  fileNamePrefix="Readmission_Patients_Report"
-  totalRecords={totalRecords}
-/>
               <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-blue-50 text-blue-700 border border-blue-100">
                 <span className="w-2 h-2 rounded-full bg-blue-600 animate-pulse"></span>
                 Showing {patients.length} of {totalRecords.toLocaleString()}
@@ -335,7 +324,7 @@ export default function ReadmissionPatientList() {
                   key={status}
                   type="button"
                   onClick={() => handleStatusChange(status)}
-                  className={`flex-1 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                  className={`flex-1 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
                     selectedStatus === status
                       ? 'bg-white text-slate-900 shadow-xs border border-slate-200/50'
                       : 'text-slate-500 hover:text-slate-900'
@@ -359,7 +348,8 @@ export default function ReadmissionPatientList() {
           <table className="w-full text-left border-collapse">
             <thead>
               <tr className="bg-slate-50/80 border-b border-slate-200/80 text-[11px] font-bold tracking-wider text-slate-400 uppercase">
-                <th className="py-3.5 px-6">Member ID</th>
+                <th className="py-3.5 px-6 min-w-[170px]">Member Info</th>
+                <th className="py-3.5 px-4 min-w-[110px]">Risk Score</th>
                 <th className="py-3.5 px-4">Risk Category</th>
                 <th className="py-3.5 px-4">Readmission Prob %</th>
                 <th className="py-3.5 px-4">Time Window</th>
@@ -371,7 +361,7 @@ export default function ReadmissionPatientList() {
             <tbody className="divide-y divide-slate-100 text-xs text-slate-700">
               {loading ? (
                 <tr>
-                  <td colSpan="7" className="text-center py-16 text-slate-400">
+                  <td colSpan="8" className="text-center py-16 text-slate-400">
                     <div className="flex flex-col items-center justify-center gap-3">
                       <div className="w-8 h-8 border-4 border-slate-200 border-t-blue-600 rounded-full animate-spin"></div>
                       <p className="font-bold text-slate-600">Loading readmission records...</p>
@@ -381,7 +371,7 @@ export default function ReadmissionPatientList() {
                 </tr>
               ) : patients.length === 0 ? (
                 <tr>
-                  <td colSpan="7" className="text-center py-12 text-slate-400">
+                  <td colSpan="8" className="text-center py-12 text-slate-400">
                     <div className="flex flex-col items-center justify-center gap-2">
                       <User size={32} className="text-slate-300" />
                       <p className="font-bold text-slate-600">No patient records found</p>
@@ -392,12 +382,13 @@ export default function ReadmissionPatientList() {
               ) : (
                 patients.map((patient, index) => (
                   <tr key={`${patient.Member_Number}-${index}`} className="hover:bg-blue-50/30 transition group">
-                    <td className="py-4 px-6 font-bold">
+                    {/* Member ID and Member Name */}
+                    <td className="py-4 px-6">
                       <a
                         href={`/Readmission/PatientList/PatientProfile?id=${encodeURIComponent(
                           patient.Member_Number
                         )}`}
-                        className="inline-flex items-center gap-1 text-blue-600 hover:text-blue-800 transition"
+                        className="inline-flex items-center gap-1 font-bold text-blue-600 hover:text-blue-800 transition"
                       >
                         {patient.Member_Number}
                         <ArrowUpRight
@@ -405,7 +396,21 @@ export default function ReadmissionPatientList() {
                           className="opacity-0 group-hover:opacity-100 transition-opacity"
                         />
                       </a>
+                      <p className="text-[11px] font-semibold text-slate-800 mt-0.5 leading-tight">
+                        {patient.Member_Name && patient.Member_Name !== 'N/A'
+                          ? patient.Member_Name
+                          : 'N/A'}
+                      </p>
                     </td>
+
+                    {/* Risk Score */}
+                    <td className="py-4 px-4 font-mono font-bold text-slate-800">
+                      {patient.Risk_Score != null
+                        ? Number(patient.Risk_Score).toFixed(2)
+                        : 'N/A'}
+                    </td>
+
+                    {/* Risk Category */}
                     <td className="py-4 px-4">
                       <span
                         className={`inline-flex items-center px-2.5 py-1 rounded-lg text-[11px] font-bold border ${getRiskBadgeStyles(
@@ -415,6 +420,8 @@ export default function ReadmissionPatientList() {
                         {patient.Risk_Category || 'Unknown'}
                       </span>
                     </td>
+
+                    {/* Readmission Prob % */}
                     <td className="py-4 px-4">
                       <div className="flex items-center gap-3">
                         <span className="font-extrabold text-slate-900 min-w-[42px]">
@@ -439,19 +446,27 @@ export default function ReadmissionPatientList() {
                         </div>
                       </div>
                     </td>
+
+                    {/* Time Window */}
                     <td className="py-4 px-4 font-semibold text-slate-700">
                       <span className="inline-flex items-center gap-1">
                         <Clock size={12} className="text-slate-400" />
                         {patient.Stage2_Predicted_Time_Window || 'N/A'}
                       </span>
                     </td>
+
+                    {/* Demographics */}
                     <td className="py-4 px-4 text-slate-600">
                       <span className="font-bold text-slate-800">{patient.Age ?? '-'}</span> yrs /{' '}
                       <span className="font-semibold">{patient.Gender || '-'}</span>
                     </td>
+
+                    {/* Plan Type */}
                     <td className="py-4 px-4 text-slate-500 font-medium">
                       {patient.Tier || 'Standard'}
                     </td>
+
+                    {/* Actual Status */}
                     <td className="py-4 px-6">
                       <span
                         className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-xl text-[11px] font-bold border ${
@@ -489,7 +504,7 @@ export default function ReadmissionPatientList() {
                 type="button"
                 disabled={currentPage === 1 || loading}
                 onClick={() => handlePageChange(currentPage - 1)}
-                className="px-3 py-2 text-xs font-bold rounded-xl border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition"
+                className="px-3 py-2 text-xs font-bold rounded-xl border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition cursor-pointer"
               >
                 Previous
               </button>
@@ -499,7 +514,7 @@ export default function ReadmissionPatientList() {
                   <button
                     type="button"
                     onClick={() => handlePageChange(1)}
-                    className="w-9 h-9 text-xs font-bold rounded-xl border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 transition"
+                    className="w-9 h-9 text-xs font-bold rounded-xl border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 transition cursor-pointer"
                   >
                     1
                   </button>
@@ -512,7 +527,7 @@ export default function ReadmissionPatientList() {
                   key={page}
                   type="button"
                   onClick={() => handlePageChange(page)}
-                  className={`w-9 h-9 text-xs font-bold rounded-xl border transition ${
+                  className={`w-9 h-9 text-xs font-bold rounded-xl border transition cursor-pointer ${
                     currentPage === page
                       ? 'bg-blue-600 text-white border-blue-600'
                       : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
@@ -528,7 +543,7 @@ export default function ReadmissionPatientList() {
                   <button
                     type="button"
                     onClick={() => handlePageChange(totalPages)}
-                    className="w-9 h-9 text-xs font-bold rounded-xl border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 transition"
+                    className="w-9 h-9 text-xs font-bold rounded-xl border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 transition cursor-pointer"
                   >
                     {totalPages}
                   </button>
@@ -539,7 +554,7 @@ export default function ReadmissionPatientList() {
                 type="button"
                 disabled={currentPage >= totalPages || loading}
                 onClick={() => handlePageChange(currentPage + 1)}
-                className="px-3 py-2 text-xs font-bold rounded-xl border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition"
+                className="px-3 py-2 text-xs font-bold rounded-xl border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition cursor-pointer"
               >
                 Next
               </button>

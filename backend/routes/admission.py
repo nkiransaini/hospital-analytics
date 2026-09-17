@@ -183,35 +183,44 @@ def get_patient_list(
         params = []
 
         if search.strip():
-            where_clause += " AND CAST(Member_Number AS VARCHAR(50)) LIKE ?"
+            where_clause += " AND CAST(HA.Member_Number AS VARCHAR(50)) LIKE ?"
             params.append(f"%{search.strip()}%")
 
         if condition != "ALL":
-            where_clause += " AND Risk_Category = ?"
+            where_clause += " AND HA.Risk_Category = ?"
             params.append(condition)
 
         if status != "ALL":
-            where_clause += " AND Actual_Admission_Status = ?"
+            where_clause += " AND HA.Actual_Admission_Status = ?"
             params.append(status)
 
+        # Joins with dbo.Member_ICDcodes via OUTER APPLY to fetch patient name cleanly
         unique_patients_cte = f"""
             WITH UniquePatients AS (
                 SELECT
-                    Member_Number,
-                    Age,
-                    Gender,
-                    Tier,
-                    Risk_Score,
-                    Risk_Category,
-                    Total_Medical_Cost,
-                    Admission_prob_percentage,
-                    Model_Admission_Status,
-                    Actual_Admission_Status,
+                    HA.Member_Number,
+                    COALESCE(NAME_LOOKUP.Member_Name, 'N/A') AS Member_Name,
+                    HA.Age,
+                    HA.Gender,
+                    HA.Tier,
+                    HA.Risk_Score,
+                    HA.Risk_Category,
+                    HA.Total_Medical_Cost,
+                    HA.Admission_prob_percentage,
+                    HA.Model_Admission_Status,
+                    HA.Actual_Admission_Status,
                     ROW_NUMBER() OVER (
-                        PARTITION BY Member_Number
-                        ORDER BY Member_Number
+                        PARTITION BY HA.Member_Number
+                        ORDER BY HA.Member_Number
                     ) AS rn
-                FROM dbo.Hospital_Admission
+                FROM dbo.Hospital_Admission HA
+                OUTER APPLY (
+                    SELECT TOP 1 
+                        LTRIM(RTRIM(COALESCE(MEMBER_FIRST_NAME, '') + ' ' + COALESCE(MEMBER_LAST_NAME, ''))) AS Member_Name
+                    FROM dbo.Member_ICDcodes ICD
+                    WHERE CAST(ICD.MEMBER_NUMBER AS VARCHAR(50)) = CAST(HA.Member_Number AS VARCHAR(50))
+                      AND (ICD.MEMBER_FIRST_NAME IS NOT NULL OR ICD.MEMBER_LAST_NAME IS NOT NULL)
+                ) NAME_LOOKUP
                 {where_clause}
             )
         """
@@ -245,10 +254,11 @@ def get_patient_list(
             {unique_patients_cte}
             SELECT
                 Member_Number,
+                Member_Name,
+                Risk_Score,
                 Age,
                 Gender,
                 Tier,
-                Risk_Score,
                 Risk_Category,
                 Total_Medical_Cost,
                 Admission_prob_percentage,
@@ -313,51 +323,59 @@ def get_patient_profile(member_number: str):
         conn = get_connection()
         cursor = conn.cursor()
 
-        # 1. Base Member Row (Includes Last PCP Encounter Details)
+        # 1. Base Member Row joined with Member_ICDcodes
         patient_query = """
             SELECT TOP 1
-                Member_Number,
-                Age,
-                Gender,
-                Tier,
-                PCP_Number,
-                Group_Number,
-                Risk_Score,
-                IPA_Claims_Budget,
-                Capitation,
-                Source_File_Name,
-                Total_Medical_Claims,
-                Unique_Claims,
-                Unique_Diagnosis,
-                Unique_Procedures,
-                Unique_Providers,
-                Total_Medical_Cost,
-                Avg_Claim_Cost,
-                Max_Claim_Cost,
-                Office_Visits,
-                Outpatient_Visits,
-                ER_Visits,
-                Prescription_Count,
-                Unique_Drugs,
-                Drug_Classes,
-                Pharmacy_Cost,
-                Avg_Days_Supply,
-                Dental_Visits,
-                Dental_Cost,
-                Admission_prob_percentage,
-                Risk_Category,
-                Actual_Admission_Status,
-                Model_Admission_Status,
-                Prediction_Correct,
-                Prediction_Result,
-                Target,
-                target_predicted,
-                CAST(Last_PCP_Encountered_Number AS VARCHAR(50)) AS Last_PCP_Encountered_Number,
-                Last_PCP_Encountered_Last_Name,
-                Last_PCP_Encountered_First_Name,
-                COALESCE(CONVERT(VARCHAR(10), Last_PCP_Encounter_Date, 120), 'N/A') AS Last_PCP_Encounter_Date
-            FROM dbo.Hospital_Admission
-            WHERE CAST(Member_Number AS VARCHAR(50)) = ?
+                HA.Member_Number,
+                COALESCE(NAME_LOOKUP.Member_Name, 'N/A') AS Member_Name,
+                HA.Age,
+                HA.Gender,
+                HA.Tier,
+                HA.PCP_Number,
+                HA.Group_Number,
+                HA.Risk_Score,
+                HA.IPA_Claims_Budget,
+                HA.Capitation,
+                HA.Source_File_Name,
+                HA.Total_Medical_Claims,
+                HA.Unique_Claims,
+                HA.Unique_Diagnosis,
+                HA.Unique_Procedures,
+                HA.Unique_Providers,
+                HA.Total_Medical_Cost,
+                HA.Avg_Claim_Cost,
+                HA.Max_Claim_Cost,
+                HA.Office_Visits,
+                HA.Outpatient_Visits,
+                HA.ER_Visits,
+                HA.Prescription_Count,
+                HA.Unique_Drugs,
+                HA.Drug_Classes,
+                HA.Pharmacy_Cost,
+                HA.Avg_Days_Supply,
+                HA.Dental_Visits,
+                HA.Dental_Cost,
+                HA.Admission_prob_percentage,
+                HA.Risk_Category,
+                HA.Actual_Admission_Status,
+                HA.Model_Admission_Status,
+                HA.Prediction_Correct,
+                HA.Prediction_Result,
+                HA.Target,
+                HA.target_predicted,
+                CAST(HA.Last_PCP_Encountered_Number AS VARCHAR(50)) AS Last_PCP_Encountered_Number,
+                HA.Last_PCP_Encountered_Last_Name,
+                HA.Last_PCP_Encountered_First_Name,
+                COALESCE(CONVERT(VARCHAR(10), HA.Last_PCP_Encounter_Date, 120), 'N/A') AS Last_PCP_Encounter_Date
+            FROM dbo.Hospital_Admission HA
+            OUTER APPLY (
+                SELECT TOP 1 
+                    LTRIM(RTRIM(COALESCE(MEMBER_FIRST_NAME, '') + ' ' + COALESCE(MEMBER_LAST_NAME, ''))) AS Member_Name
+                FROM dbo.Member_ICDcodes ICD
+                WHERE CAST(ICD.MEMBER_NUMBER AS VARCHAR(50)) = CAST(HA.Member_Number AS VARCHAR(50))
+                  AND (ICD.MEMBER_FIRST_NAME IS NOT NULL OR ICD.MEMBER_LAST_NAME IS NOT NULL)
+            ) NAME_LOOKUP
+            WHERE CAST(HA.Member_Number AS VARCHAR(50)) = ?
         """
 
         cursor.execute(patient_query, str(member_number).strip())
@@ -372,7 +390,7 @@ def get_patient_profile(member_number: str):
         columns = [column[0] for column in cursor.description]
         patient = dict(zip(columns, row))
 
-        # 2. Diagnoses history (Safely handled)
+        # 2. Diagnoses history (Grouped for unique conditions in Tabs)
         diagnoses = []
         try:
             diagnosis_query = """
@@ -413,6 +431,34 @@ def get_patient_profile(member_number: str):
             diagnoses = []
 
         patient["Diagnoses"] = diagnoses
+
+        # 3. Clinical Timeline / Medical History (All raw encounters without GROUP BY)
+        medical_history = []
+        try:
+            medical_history_query = """
+                SELECT
+                    DIAGNOSIS,
+                    Normalized_DIAGNOSIS,
+                    DIAGNOSIS_TYPE,
+                    SHORT_DESCRIPTION,
+                    LONG_DESCRIPTION,
+                    CAST(Year_month AS VARCHAR(10)) AS Year_month
+                FROM dbo.Hospital_Admission
+                WHERE CAST(Member_Number AS VARCHAR(50)) = ?
+                  AND Year_month IS NOT NULL
+                ORDER BY 
+                    CAST(Year_month AS VARCHAR(10)) DESC
+            """
+            cursor.execute(medical_history_query, str(member_number).strip())
+            history_columns = [column[0] for column in cursor.description]
+            medical_history = [
+                dict(zip(history_columns, h_row))
+                for h_row in cursor.fetchall()
+            ]
+        except Exception:
+            medical_history = []
+
+        patient["Medical_History"] = medical_history
 
         return {
             "success": True,
@@ -455,43 +501,52 @@ def export_patients_csv(
         params = []
 
         if search.strip():
-            where_clause += " AND CAST(Member_Number AS VARCHAR(50)) LIKE ?"
+            where_clause += " AND CAST(HA.Member_Number AS VARCHAR(50)) LIKE ?"
             params.append(f"%{search.strip()}%")
 
         if condition != "ALL":
-            where_clause += " AND Risk_Category = ?"
+            where_clause += " AND HA.Risk_Category = ?"
             params.append(condition)
 
         if status != "ALL":
-            where_clause += " AND Actual_Admission_Status = ?"
+            where_clause += " AND HA.Actual_Admission_Status = ?"
             params.append(status)
 
         export_query = f"""
             WITH UniquePatients AS (
                 SELECT
-                    Member_Number,
-                    Age,
-                    Gender,
-                    Tier,
-                    Risk_Score,
-                    Risk_Category,
-                    Total_Medical_Cost,
-                    Admission_prob_percentage,
-                    Model_Admission_Status,
-                    Actual_Admission_Status,
+                    HA.Member_Number,
+                    COALESCE(NAME_LOOKUP.Member_Name, 'N/A') AS Member_Name,
+                    HA.Risk_Score,
+                    HA.Age,
+                    HA.Gender,
+                    HA.Tier,
+                    HA.Risk_Category,
+                    HA.Total_Medical_Cost,
+                    HA.Admission_prob_percentage,
+                    HA.Model_Admission_Status,
+                    HA.Actual_Admission_Status,
                     ROW_NUMBER() OVER (
-                        PARTITION BY Member_Number
-                        ORDER BY Member_Number
+                        PARTITION BY HA.Member_Number
+                        ORDER BY HA.Member_Number
                     ) AS rn
-                FROM dbo.Hospital_Admission
+                FROM dbo.Hospital_Admission HA
+                OUTER APPLY (
+                    SELECT TOP 1 
+                        LTRIM(RTRIM(COALESCE(MEMBER_FIRST_NAME, '') + ' ' + COALESCE(MEMBER_LAST_NAME, ''))) AS Member_Name
+                    FROM dbo.Member_ICDcodes ICD
+                    WHERE CAST(ICD.MEMBER_NUMBER AS VARCHAR(50)) = CAST(HA.Member_Number AS VARCHAR(50))
+                      AND (ICD.MEMBER_FIRST_NAME IS NOT NULL OR ICD.MEMBER_LAST_NAME IS NOT NULL)
+                ) NAME_LOOKUP
                 {where_clause}
             )
             SELECT
                 Member_Number,
+                Member_Name,
+                Risk_Score,
                 Age,
                 Gender,
                 Tier,
-                Risk_Score,
                 Risk_Category,
                 Total_Medical_Cost,
                 Admission_prob_percentage,
@@ -506,8 +561,8 @@ def export_patients_csv(
         rows = cursor.fetchall()
 
         headers = [
-            "Member Number", "Age", "Gender", "Tier", "Risk Score",
-            "Risk Category", "Total Medical Cost", "Admission Prob (%)",
+            "Member Number", "Member Name", "Risk Score", "Age", "Gender",
+            "Tier", "Risk Category", "Total Medical Cost", "Admission Prob (%)",
             "Model Admission Status", "Actual Admission Status"
         ]
 

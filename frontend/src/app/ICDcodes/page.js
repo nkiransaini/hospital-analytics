@@ -117,7 +117,7 @@ export default function ICDCodesPage() {
             >
               <RefreshCw size={14} className={loading ? "animate-spin text-blue-600" : ""} />
             </button>
-            
+
             <ExportCSVButton 
               endpoint="/api/icd/export"
               queryParams={{

@@ -15,7 +15,7 @@ import {
 } from 'lucide-react';
 
 // Separate Component Import
-import ExportCSVButton from '@/components/ExportCSVButton'; // Adjust relative path as needed
+import ExportCSVButton from '@/components/ExportCSVButton';
 
 const API_URL = 'http://127.0.0.1:8000';
 const PAGE_SIZE = 250;
@@ -280,18 +280,17 @@ export default function PatientList() {
                 </button>
               )}
 
-              {/* Imported Standalone Export Component */}
-
-        <ExportCSVButton
-          endpoint="/api/admission/patients/export"
-          queryParams={{
-          condition: selectedCondition,
-          search: debouncedSearch,
-          status: selectedStatus
-          }}
-          fileNamePrefix="Patient_Admission_Report"
-          totalRecords={totalRecords}
-        />
+              {/* Standalone Export Component */}
+              <ExportCSVButton
+                endpoint="/api/admission/patients/export"
+                queryParams={{
+                  condition: selectedCondition,
+                  search: debouncedSearch,
+                  status: selectedStatus
+                }}
+                fileNamePrefix="Patient_Admission_Report"
+                totalRecords={totalRecords}
+              />
 
               {/* Showing Badge */}
               <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-blue-50 text-blue-700 border border-blue-100">
@@ -364,7 +363,8 @@ export default function PatientList() {
           <table className="w-full text-left border-collapse">
             <thead>
               <tr className="bg-slate-50/80 border-b border-slate-200/80 text-[11px] font-bold tracking-wider text-slate-400 uppercase">
-                <th className="py-3.5 px-6">Member ID</th>
+                <th className="py-3.5 px-6 min-w-[160px]">Member Info</th>
+                <th className="py-3.5 px-4 min-w-[100px]">Risk Score</th>
                 <th className="py-3.5 px-4">Risk Tier</th>
                 <th className="py-3.5 px-4">Admission Prob %</th>
                 <th className="py-3.5 px-4">Demographics</th>
@@ -375,7 +375,7 @@ export default function PatientList() {
             <tbody className="divide-y divide-slate-100 text-xs text-slate-700">
               {loading ? (
                 <tr>
-                  <td colSpan="6" className="text-center py-16 text-slate-400">
+                  <td colSpan="7" className="text-center py-16 text-slate-400">
                     <div className="flex flex-col items-center justify-center gap-3">
                       <div className="w-8 h-8 border-4 border-slate-200 border-t-blue-600 rounded-full animate-spin"></div>
                       <p className="font-bold text-slate-600">Loading patient records...</p>
@@ -385,7 +385,7 @@ export default function PatientList() {
                 </tr>
               ) : patients.length === 0 ? (
                 <tr>
-                  <td colSpan="6" className="text-center py-12 text-slate-400">
+                  <td colSpan="7" className="text-center py-12 text-slate-400">
                     <div className="flex flex-col items-center justify-center gap-2">
                       <User size={32} className="text-slate-300" />
                       <p className="font-bold text-slate-600">No patient records found</p>
@@ -396,12 +396,13 @@ export default function PatientList() {
               ) : (
                 patients.map((patient, index) => (
                   <tr key={`${patient.Member_Number}-${index}`} className="hover:bg-blue-50/30 transition group">
-                    <td className="py-4 px-6 font-bold">
+                    {/* Member ID and Name */}
+                    <td className="py-4 px-6">
                       <a
                         href={`/Admission/PatientList/PatientProfile?id=${encodeURIComponent(
                           patient.Member_Number
                         )}`}
-                        className="inline-flex items-center gap-1 text-blue-600 hover:text-blue-800 transition"
+                        className="inline-flex items-center gap-1 font-bold text-blue-600 hover:text-blue-800 transition"
                       >
                         {patient.Member_Number}
                         <ArrowUpRight
@@ -409,7 +410,21 @@ export default function PatientList() {
                           className="opacity-0 group-hover:opacity-100 transition-opacity"
                         />
                       </a>
+                      <p className="text-[11px] font-medium text-slate-500 mt-0.5 leading-tight">
+                        {patient.Member_Name && patient.Member_Name !== 'N/A'
+                          ? patient.Member_Name
+                          : 'N/A'}
+                      </p>
                     </td>
+
+                    {/* Risk Score */}
+                    <td className="py-4 px-4 font-mono font-bold text-slate-800">
+                      {patient.Risk_Score != null
+                        ? Number(patient.Risk_Score).toFixed(2)
+                        : 'N/A'}
+                    </td>
+
+                    {/* Risk Tier */}
                     <td className="py-4 px-4">
                       <span
                         className={`inline-flex items-center px-2.5 py-1 rounded-lg text-[11px] font-bold border ${getRiskBadgeStyles(
@@ -419,6 +434,8 @@ export default function PatientList() {
                         {patient.Risk_Category || 'Unknown'}
                       </span>
                     </td>
+
+                    {/* Admission Prob % */}
                     <td className="py-4 px-4">
                       <div className="flex items-center gap-3">
                         <span className="font-extrabold text-slate-900 min-w-[42px]">
@@ -443,13 +460,19 @@ export default function PatientList() {
                         </div>
                       </div>
                     </td>
+
+                    {/* Demographics */}
                     <td className="py-4 px-4 text-slate-600">
                       <span className="font-bold text-slate-800">{patient.Age ?? '-'}</span> yrs /{' '}
                       <span className="font-semibold">{patient.Gender || '-'}</span>
                     </td>
+
+                    {/* Plan Type */}
                     <td className="py-4 px-4 text-slate-500 font-medium">
                       {patient.Tier || 'Standard'}
                     </td>
+
+                    {/* Actual Admission */}
                     <td className="py-4 px-6">
                       <span
                         className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-xl text-[11px] font-bold border ${
